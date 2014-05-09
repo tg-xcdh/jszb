@@ -1,0 +1,36 @@
+指标
+	MA
+			返回简单移动平均
+			用法：MA(X,M)：X的M日简单移动平均
+	EMA
+		返回指数移动平均
+		用法：EMA(X,M)：X的M日指数移动平均
+		算法：Y = (X*2 + Y'*(M-1)) / (M+1)
+	SMA
+		返回平滑移动平均
+		用法：SMA(X,N,M)：X的N日移动平均，M为权重
+		算法：Y = (X*M + Y'*(N-M)) / N
+	RSI
+		LC:=REF(CLOSE,1);
+		RSI1:SMA(MAX(CLOSE-LC,0),N1,1)/SMA(ABS(CLOSE-LC),N1,1)*100;
+		RSI2:SMA(MAX(CLOSE-LC,0),N2,1)/SMA(ABS(CLOSE-LC),N2,1)*100;
+		RSI3:SMA(MAX(CLOSE-LC,0),N3,1)/SMA(ABS(CLOSE-LC),N3,1)*100;
+	MACD
+		SHORT,2,200,12
+		LONG,2,200,26
+		MID,2,200,9
+		DIF:EMA(CLOSE,SHORT)-EMA(CLOSE,LONG);
+		DEA:EMA(DIF,MID);
+		MACD:(DIF-DEA)*2;
+	KDJ
+		N,2,90,9
+		M1,2,30,3
+		M2,2,30,3
+		RSV:=(CLOSE-LLV(LOW,N))/(HHV(HIGH,N)-LLV(LOW,N))*100;
+		K:SMA(RSV,M1,1);
+		D:SMA(K,M2,1);
+		J:3*K-2*D;
+		
+cygwin
+	运行程序生成core文件,不然只有stackdump
+	export CYGWIN='error_start=dumper.exe'
