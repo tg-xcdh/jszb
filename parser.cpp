@@ -16,7 +16,9 @@ namespace tg {
 //#define LOG_CLEAN
 #endif
 
-/* ------ ASTå¼€å§‹ ------ */
+/* Ê¹ÓÃnotepad++,ÔÚwindowsºÍlinuxÏÂÍ³Ò»Ê¹ÓÃANSI±àÂë¸ñÊ½ */
+
+/* ------ AST¿ªÊ¼ ------ */
 
 static void nodeFree(Node *node)
 {
@@ -212,7 +214,7 @@ static BinaryExpr *binaryExprNew(Node *lhs, enum Token op, Node *rhs)
 	return e;
 }
 
-/* ------ ASTç»“æŸ ------ */
+/* ------ AST½áÊø ------ */
 
 void *parserNew(void *userdata, int (*handleError)(int lineno, int charpos, int error, const char *errmsg, void *userdata))
 {
@@ -276,7 +278,7 @@ static ExprList *parseExprList(Parser *p)
 			}
 		} else {
 			ok = false;
-			if (handleParserError(p, 1, "è§£æexprListå‡ºé”™"))
+			if (handleParserError(p, 1, "½âÎöexprList³ö´í"))
 				break;
 		}
 		if (p->tok != TK_COMMA)
@@ -286,7 +288,7 @@ static ExprList *parseExprList(Parser *p)
 	
 	if (ok) {
 #ifdef CONFIG_LOG_PARSER
-		info("è§£æå¾—åˆ°ExprList\n");
+		info("½âÎöµÃµ½ExprList\n");
 #endif
 		return exprListNew(&args);
 	}
@@ -307,16 +309,16 @@ static Node *parseIdOrFuncCall(Parser *p)
 		arg = parseExprList(p);
 		if (p->tok == TK_RP) {
 #ifdef CONFIG_LOG_PARSER
-			info("è§£æå¾—åˆ°FuncCall\n");
+			info("½âÎöµÃµ½FuncCall\n");
 #endif
 			expr = (Node *)funcCallNew(&id, arg);
 			p->tok = lexerGetToken(p->lex, &p->tokval, &p->toklen);
 		} else {
-			handleParserError(p, 1, "è§£æFuncCall,ç¼ºå°‘)");
+			handleParserError(p, 1, "½âÎöFuncCall,È±ÉÙ)");
 		}
 	} else {
 #ifdef CONFIG_LOG_PARSER
-		info("è§£æå¾—åˆ°IdExpr\n");
+		info("½âÎöµÃµ½IdExpr\n");
 #endif
 		expr = (Node *)idExprNew(&id);
 	}
@@ -331,7 +333,7 @@ static Node *parseUnaryExpr(Parser *p)
 		char ch = p->tokval[p->toklen];
 		p->tokval[p->toklen] = '\0';
 #ifdef CONFIG_LOG_PARSER
-		info("è§£æå¾—åˆ°IntExpr\n");
+		info("½âÎöµÃµ½IntExpr\n");
 #endif
 		expr = (Node *)intExprNew(atoll(p->tokval));
 		p->tokval[p->toklen] = ch;
@@ -340,7 +342,7 @@ static Node *parseUnaryExpr(Parser *p)
 		char ch = p->tokval[p->toklen];
 		p->tokval[p->toklen] = '\0';
 #ifdef CONFIG_LOG_PARSER
-		info("è§£æå¾—åˆ°DecimalExpr\n");
+		info("½âÎöµÃµ½DecimalExpr\n");
 #endif
 		expr = (Node *)decimalExprNew(atof(p->tokval));
 		p->tokval[p->toklen] = ch;
@@ -352,7 +354,7 @@ static Node *parseUnaryExpr(Parser *p)
 		expr = parseExpr(p);
 		if (p->tok == TK_RP) {
 #ifdef CONFIG_LOG_PARSER
-			info("è§£æå¾—åˆ°(expr)\n");
+			info("½âÎöµÃµ½(expr)\n");
 #endif
 			p->tok = lexerGetToken(p->lex, &p->tokval, &p->toklen);
 		} else {
@@ -366,7 +368,7 @@ static Node *parseUnaryExpr(Parser *p)
 	return expr;
 }
 
-/* ä¼˜å…ˆçº§å¿…é¡»å¤§äº0 */
+/* ÓÅÏÈ¼¶±ØĞë´óÓÚ0 */
 static const int PREC_ADD = 10;
 static const int PREC_SUB = 10;
 static const int PREC_MUL = 20;
@@ -394,7 +396,7 @@ static Node *parseBinaryExpr(Parser *p, Node **lhs, int prec)
 	p->tok = lexerGetToken(p->lex, &p->tokval, &p->toklen);
 	rhs = parseUnaryExpr(p);
 	if (!rhs) {
-		handleParserError(p, 1, "è§£æBinaryExprå‡ºé”™");
+		handleParserError(p, 1, "½âÎöBinaryExpr³ö´í");
 		return 0;
 	}
 	
@@ -434,7 +436,7 @@ static Node *parseExpr(Parser *p)
 			Node *e2 = parseBinaryExpr(p, &expr, prec);
 			if (e2) {
 #ifdef CONFIG_LOG_PARSER
-				info("è§£æå¾—åˆ°BinaryExpr\n");
+				info("½âÎöµÃµ½BinaryExpr\n");
 #endif
 				expr = e2;
 			} else {
@@ -463,15 +465,15 @@ static Stmt *parseStmt(Parser *p)
 		if (expr) {
 			if (p->tok == TK_SEMICOLON) {
 #ifdef CONFIG_LOG_PARSER
-				info("è§£æå¾—åˆ°stmt\n");
+				info("½âÎöµÃµ½stmt\n");
 #endif
 				return stmtNew(&id, op, expr);
 			} else {
-				handleParserError(p, 0, "è§£æstmt,ç¼ºå°‘;");
+				handleParserError(p, 0, "½âÎöstmt,È±ÉÙ;");
 			}
 		}
 	} else {
-		handleParserError(p, 1, "è§£æstmt,ä¸è¯†åˆ«ç¬¦å·,åªèƒ½æ˜¯:=æˆ–è€…:");
+		handleParserError(p, 1, "½âÎöstmt,²»Ê¶±ğ·ûºÅ,Ö»ÄÜÊÇ:=»òÕß:");
 	}
 	
 	stringFree(&id);
@@ -497,7 +499,7 @@ static Formula *parseFormula(Parser *p)
 		} else if (p->tok == TK_EOF) {
 			break;
 		} else {
-			if (handleParserError(p, 1, "è§£æformula,ä¸è¯†åˆ«ç¬¦å·")) {
+			if (handleParserError(p, 1, "½âÎöformula,²»Ê¶±ğ·ûºÅ")) {
 				break;
 			}
 		}
@@ -505,18 +507,18 @@ static Formula *parseFormula(Parser *p)
 	
 end:
 #ifdef CONFIG_LOG_PARSER
-	info("è§£æå¾—åˆ°formula\n");
+	info("½âÎöµÃµ½formula\n");
 #endif
 	return formulaNew(&stmts);
 }
 
-/* è‡ªé¡¶å‘ä¸‹è§£ææ—¶, ä¿è¯è¿›å…¥åˆ°æ¯ä¸ªparseXXXå‡½æ•°å…ˆè·å–äº†ä¸‹ä¸€ä¸ªtoken,
- * parseFormulaå’ŒparseStmtä¾‹å¤– */
+/* ×Ô¶¥ÏòÏÂ½âÎöÊ±, ±£Ö¤½øÈëµ½Ã¿¸öparseXXXº¯ÊıÏÈ»ñÈ¡ÁËÏÂÒ»¸ötoken,
+ * parseFormulaºÍparseStmtÀıÍâ */
 
 static int parseAST(Parser *p)
 {
 #ifdef CONFIG_LOG_PARSER
-	info("å¼€å§‹è§£æAST\n");
+	info("¿ªÊ¼½âÎöAST\n");
 #endif
 	p->ast = parseFormula(p);
 	return p->ast ? 0 : -1;
@@ -529,7 +531,7 @@ int parserParseFile(void *p, const char *filename)
 	if (!yacc)
 		return -1;
 	
-	assert(yacc->lex == 0); /* æ¯æ¬¡è§£æå®Œæˆä¹‹åé‡Šæ”¾äº† */
+	assert(yacc->lex == 0); /* Ã¿´Î½âÎöÍê³ÉÖ®ºóÊÍ·ÅÁË */
 	yacc->lex = lexerNew();
 	if (!yacc->lex)
 		return -1;
@@ -556,7 +558,7 @@ int parserParse(void *p, const char *str, int len)
 	if (!yacc)
 		return -1;
 	
-	assert(yacc->lex == 0); /* æ¯æ¬¡è§£æå®Œæˆä¹‹åé‡Šæ”¾äº† */
+	assert(yacc->lex == 0); /* Ã¿´Î½âÎöÍê³ÉÖ®ºóÊÍ·ÅÁË */
 	yacc->lex = lexerNew();
 	if (!yacc->lex)
 		return -1;

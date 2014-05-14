@@ -289,7 +289,7 @@ show:
 	
 #tar -zvcf indicator.tar.gz *.h *.cpp *.txt Makefile --exclude=test-*
 tar:
-	tar -zvcf indicator.tar.gz *.h *.cpp *.txt Makefile
+	tar -zvcf indicator.tar.gz *.h *.cpp *.txt Makefile interp.sln interp.vcxproj interp.vcxproj.filters
 
 ## End of the Makefile ##  Suggestions are welcome  ## All rights reserved ##
 #############################################################################

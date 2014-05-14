@@ -16,8 +16,8 @@ using namespace tg;
 
 void testMACD()
 {
-	info("寮�濮嬪崟鍏冩祴璇昅ACD\n");
-	info("鍏紡涓篭n%s\n", FOUMULA);
+	info("开始单元测试MACD\n");
+	info("公式为\n%s\n", FOUMULA);
 	
 	void *parser = parserNew(0, testHandleError);
 	
@@ -25,5 +25,5 @@ void testMACD()
 	
 	parserFree(parser);
 	
-	info("缁撴潫鍗曞厓娴嬭瘯\n\n");
+	info("结束单元测试\n\n");
 }

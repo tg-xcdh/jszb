@@ -7,9 +7,9 @@ namespace tg {
 int testHandleError(int lineno, int charpos, int error, const char *errmsg, void *userdata)
 {
 	if (error) {
-		error("å‡ºé”™ %d:%d %s\n", lineno, charpos, errmsg);
+		error("³ö´í %d:%d %s\n", lineno, charpos, errmsg);
 	} else {
-		info("å‡ºé”™ %d:%d %s\n", lineno, charpos, errmsg);
+		info("³ö´í %d:%d %s\n", lineno, charpos, errmsg);
 	}
 	return 1;
 }

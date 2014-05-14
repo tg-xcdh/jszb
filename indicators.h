@@ -12,32 +12,37 @@ struct Value {
 		double f;
 		double *values;
 	};
-	int size;
-	int index; /*valuesæ•°ç»„ä¸­æœ€åä¸€ä¸ªå…ƒç´ çš„ç´¢å¼•,å³æœ€æ–°å…ƒç´ çš„ç´¢å¼• */
+	int size; /* ´óĞ¡ */
+	int capacity; /* ÈİÁ¿ */
+	/* valuesÊı×éÖĞ×îºóÒ»¸öÔªËØµÄ±àºÅ,¼´×îĞÂÔªËØµÄ±àºÅ
+	 * ±àºÅ´Ó1¿ªÊ¼£¬Ê¹ÓÃ±àºÅÀ´±êÊ¶ÔªËØ£¬Ô­ÒòÔÚ£ºÀıÈçsize=5000£¬no¿ÉÒÔµ½10000 */
+	int no;
 };
+
+int isValueValid(double f); /* ÖµÊÇ·ñÓĞĞ§ */
 
 struct Quote {
-	Value open;
-	Value high;
-	Value low;
-	Value close;
+	Value *open;
+	Value *high;
+	Value *low;
+	Value *close;
 };
 
-/* æµ‹è¯•æ—¶dataå®é™…æ˜¯struct Quote * */
+/* ²âÊÔÊ±dataÊµ¼ÊÊÇstruct Quote * */
 const Value *OPEN(void *data);
 const Value *HIGH(void *data);
 const Value *LOW(void *data);
 const Value *CLOSE(void *data);
 
-/* é—®é¢˜:ç”Ÿæˆæ–°Valueçš„æ—¶å€™,å†…å­˜åˆ†é…å¤šå¤§???
- * ä¾‹å¦‚å¯¹äº
+/* ÎÊÌâ:Éú³ÉĞÂValueµÄÊ±ºò,ÄÚ´æ·ÖÅä¶à´ó???
+ * ÀıÈç¶ÔÓÚ
  * 	RSI
 		LC:=REF(CLOSE,1);
 		RSI1:SMA(MAX(CLOSE-LC,0),N1,1)/SMA(ABS(CLOSE-LC),N1,1)*100;
- * å¦‚ä½•ä½¿å¾—å†…å­˜åˆ†é…æœ€å°??? 
+ * ÈçºÎÊ¹µÃÄÚ´æ·ÖÅä×îĞ¡??? 
  */
 
-/* ç®—æœ¯è¿ç®—:åŠ å‡ä¹˜é™¤ */
+/* ËãÊõÔËËã:¼Ó¼õ³Ë³ı */
 Value *ADD(const Value *X, const Value *Y, Value *R);
 Value *SUB(const Value *X, const Value *Y, Value *R);
 Value *MUL(const Value *X, const Value *Y, Value *R);
@@ -49,8 +54,8 @@ Value *REF(const Value *X, int N, Value *R);
 /* R:=MAX(X,M) */
 Value *MAX(const Value *X, double M, Value *R);
 
-/* R:=ABS(X,M) */
-Value *ABS(const Value *X, double M, Value *R);
+/* R:=ABS(X) */
+Value *ABS(const Value *X, Value *R);
 
 /* R:=HHV(X, N) */
 Value *HHV(const Value *X, int N, Value *R);
@@ -59,20 +64,20 @@ Value *HHV(const Value *X, int N, Value *R);
 Value *LLV(const Value *X, int N, Value *R);
 
 /* MA
-	è¿”å›ç®€å•ç§»åŠ¨å¹³å‡
-	ç”¨æ³•ï¼šMA(X,M)ï¼šXçš„Mæ—¥ç®€å•ç§»åŠ¨å¹³å‡ */
+	·µ»Ø¼òµ¥ÒÆ¶¯Æ½¾ù
+	ÓÃ·¨£ºMA(X,M)£ºXµÄMÈÕ¼òµ¥ÒÆ¶¯Æ½¾ù */
 Value *MA(const Value *X, int M, Value *R);
 
 /* EMA
-	è¿”å›æŒ‡æ•°ç§»åŠ¨å¹³å‡
-	ç”¨æ³•ï¼šEMA(X,M)ï¼šXçš„Mæ—¥æŒ‡æ•°ç§»åŠ¨å¹³å‡
-	ç®—æ³•ï¼šY = (X*2 + Y'*(M-1)) / (M+1) */
+	·µ»ØÖ¸ÊıÒÆ¶¯Æ½¾ù
+	ÓÃ·¨£ºEMA(X,M)£ºXµÄMÈÕÖ¸ÊıÒÆ¶¯Æ½¾ù
+	Ëã·¨£ºY = (X*2 + Y'*(M-1)) / (M+1) */
 Value *EMA(const Value *X, int M, Value *R);
 		
 /* SMA
-	è¿”å›å¹³æ»‘ç§»åŠ¨å¹³å‡
-	ç”¨æ³•ï¼šSMA(X,N,M)ï¼šXçš„Næ—¥ç§»åŠ¨å¹³å‡ï¼ŒMä¸ºæƒé‡
-	ç®—æ³•ï¼šY = (X*M + Y'*(N-M)) / N */
+	·µ»ØÆ½»¬ÒÆ¶¯Æ½¾ù
+	ÓÃ·¨£ºSMA(X,N,M)£ºXµÄNÈÕÒÆ¶¯Æ½¾ù£¬MÎªÈ¨ÖØ
+	Ëã·¨£ºY = (X*M + Y'*(N-M)) / N */
 Value *SMA(const Value *X, int N, int M, Value *R);
 
 }

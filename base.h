@@ -9,8 +9,8 @@
 
 #define atoll _atoi64
 #define strtoull _strtoi64
+#define isnan _isnan
 
-#define errno (GetLastError())
 #else
 /* */
 #endif
@@ -25,6 +25,7 @@ enum Level {
 	FATAL,
 	LDEBUG
 };
+
 #ifdef CONFIG_LOG_DEBUG
 #define debug(...) doLog(LDEBUG, __FILE__, __LINE__, __VA_ARGS__)
 #else

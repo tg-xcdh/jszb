@@ -71,7 +71,7 @@ void doLog(int level, const char *filename, int line, const char *fmt, ...)
 		exit(1);
 }
 
-/* ------ å­—ç¬¦ä¸²å¼€å§‹ ------ */
+/* ------ ×Ö·û´®¿ªÊ¼ ------ */
 
 int stringInit(String *s, int capacity)
 {
@@ -111,9 +111,9 @@ int stringAdd(String *s, const char *str, int len)
 }
 
 	
-/* ------ å­—ç¬¦ä¸²ç»“æŸ ------ */
+/* ------ ×Ö·û´®½áÊø ------ */
 
-/* ------ æ•°ç»„å¼€å§‹ ------ */
+/* ------ Êı×é¿ªÊ¼ ------ */
 
 int arrayInit(Array *arr, int objectSize, int capacity)
 {
@@ -151,7 +151,7 @@ void *arrayAdd(Array *arr)
 	return data;
 }
 
-/* ------ æ•°ç»„ç»“æŸ ------ */
+/* ------ Êı×é½áÊø ------ */
 
 }
 

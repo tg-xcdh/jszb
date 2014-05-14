@@ -17,8 +17,8 @@ using namespace tg;
 
 void testRSI()
 {
-	info("寮�濮嬪崟鍏冩祴璇昍SI\n");
-	info("鍏紡涓篭n%s\n", FOUMULA);
+	info("开始单元测试RSI\n");
+	info("公式为\n%s\n", FOUMULA);
 	
 	void *parser = parserNew(0, testHandleError);
 	
@@ -26,5 +26,5 @@ void testRSI()
 	
 	parserFree(parser);
 	
-	info("缁撴潫鍗曞厓娴嬭瘯RSI\n\n");
+	info("结束单元测试RSI\n\n");
 }

@@ -3,7 +3,7 @@
 
 namespace tg {
 
-/* ------ ASTå¼€å§‹ ------ */
+/* ------ AST¿ªÊ¼ ------ */
 
 enum NodeType {
 	NT_NONE = TK_ALL + 1, 
@@ -71,15 +71,15 @@ struct BinaryExpr {
 	Node *rhs;
 };
 
-/* ------ ASTç»“æŸ ------ */
+/* ------ AST½áÊø ------ */
 
 class Parser {
 public:
 	Lexer *lex;
 	
 	enum Token tok;
-	char *tokval; /* æŒ‡å‘å½“å‰tokençš„å€¼(ç”±äºç¼“å†²åŒºåœ¨lexä¸­,æ²¡æœ‰ä»¥å­—ç¬¦'\0'ç»“å°¾) */
-	int toklen; /* å½“å‰tokençš„é•¿åº¦ */
+	char *tokval; /* Ö¸Ïòµ±Ç°tokenµÄÖµ(ÓÉÓÚ»º³åÇøÔÚlexÖĞ,Ã»ÓĞÒÔ×Ö·û'\0'½áÎ²) */
+	int toklen; /* µ±Ç°tokenµÄ³¤¶È */
 	
 	void *userdata;
 	int (*handleError)(int lineno, int charpos, int error, const char *errmsg, void *);

@@ -1,9 +1,21 @@
 #include "indicators.h"
 
 #include <assert.h>
+#include <float.h>
 #include <malloc.h>
+#include <math.h>
+#include <stdlib.h>
+
+#include <limits>
+
+#include "base.h"
 
 namespace tg {
+
+/* VC ÀïÃæÃ»ÓĞNAN ? */
+#ifndef NAN
+#define NAN (std::numeric_limits<double>::quiet_NaN())
+#endif
 
 Value *valueNew()
 {
@@ -15,86 +27,617 @@ Value *valueNew()
 	v->f = 0;
 	v->values = 0;
 	v->size = 0;
-	v->index = 0;
+	v->no = 0;
 	return v;
 }
+
+void valueFree(Value *v)
+{
+	if (v) {
+		if (v->isOwnMem) {
+			free(v->values);
+		}
+		free(v);
+	}
+}
+
+bool valueExtend(Value *v, int size)
+{
+	assert(v && size >= 0);
+	if (v->capacity < size) {
+		double *mem = (double *)realloc(v->values, (sizeof(*mem) * size));
+		if (!mem)
+			return false;
+		v->isOwnMem = true;
+		v->values = mem;
+		v->capacity = size;
+	}
+	return true;
+}
+
+double valueGet(const Value *v, int i)
+{
+	assert(v && v->values);
+	assert(i >= 0 && i < v->size);
+	return v->values[i];
+}
+
+void valueSet(Value *v, int i, double f)
+{
+	assert(v && v->values);
+	assert(i >= 0 && i < v->size);
+	v->values[i] = f;
+}
+
+int isValueValid(double f)
+{
+	if (isnan(f))
+		return false;
+	return true;
+}
+
 
 const Value *OPEN(void *data)
 {
 	Quote *q = (Quote *)data;
 	assert(q);
-	return &q->open;
+	return q->open;
 }
 
 const Value *HIGH(void *data)
 {
 	Quote *q = (Quote *)data;
 	assert(q);
-	return &q->high;
+	return q->high;
 }
 
 const Value *LOW(void *data)
 {
 	Quote *q = (Quote *)data;
 	assert(q);
-	return &q->low;
+	return q->low;
 }
 
 const Value *CLOSE(void *data)
 {
 	Quote *q = (Quote *)data;
 	assert(q);
-	return &q->close;
+	return q->close;
 }
 
+/* R = X + Y
+ * 2¸öÊı×éÏà¼Ó,RµÄ´óĞ¡ºÍÔªËØÉÙµÄÊı×éÒ»Ñù 
+ * RºÍ±àºÅºÍµÚÒ»¸ö²Ù×÷Êı±£³ÖÒ»ÖÂ */
 Value *ADD(const Value *X, const Value *Y, Value *R)
 {
+	int bno; /* ¿ªÊ¼±àºÅ */
+	int xbno; /* XµÄ¿ªÊ¼±àºÅ */
+	
 	assert(X && Y);
-	if (!X || !Y)
+	if (!X || !Y || X->size == 0 || Y->size == 0)
 		return R;
 	if (!R) {
 		R = valueNew();
 		if (!R)
 			return 0;
-		
 	}
+	/* ´ÓÉÏ´ÎµÄ±àºÅ¿ªÊ¼
+	 * XÖĞvaluesÖĞsize-1¶ÔÓ¦X->no */
+	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
+	assert(X->no >= X->size);
+	assert(Y->no >= Y->size);
+	xbno = X->no - (X->size-1);
+	bno = R->no ? R->no : (xbno);
+	/* Èç¹ûYµÄsize´óÓÚµÈÓÚXµÄsize£¬´ÓX¿ªÊ¼£»
+	 * Èç¹ûYµÄsizeĞ¡ÓÚXµÄsize£¬´ÓYµÄµÚÒ»¸öÔªËØÔÚXÖĞ¶ÔÓ¦µÄÎ»ÖÃ¿ªÊ¼
+	 * ------------------- X
+	 *      -------------- Y
+	 *      -------------- R */
+	if (Y->size < X->size) {
+		int y0_xno = xbno + X->size - Y->size; /* YÊı×éÖĞµÄµÚÒ»¸öÔªËØÔÚXÖĞµÄ±àºÅ */
+		if (bno < y0_xno) {
+			bno = y0_xno;
+		}
+	}
+	
+	int rsize = X->size > Y->size ? Y->size : X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int yi = Y->size - 1;
+	int ri = R->size - 1;
+	for (int eno = X->no; eno >= bno; --eno, --xi, --yi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(yi >= 0 && yi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi) + valueGet(Y, yi);
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
 	return R;
 }
 
-Value *SUB(const Value *X, const Value *Y, Value *R);
-Value *MUL(const Value *X, const Value *Y, Value *R);
-Value *DIV(const Value *X, const Value *Y, Value *R);
+Value *SUB(const Value *X, const Value *Y, Value *R)
+{
+	int bno; /* ¿ªÊ¼±àºÅ */
+	int xbno; /* XµÄ¿ªÊ¼±àºÅ */
+	
+	assert(X && Y);
+	if (!X || !Y || X->size == 0 || Y->size == 0)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	/* ´ÓÉÏ´ÎµÄ±àºÅ¿ªÊ¼
+	 * XÖĞvaluesÖĞsize-1¶ÔÓ¦X->no */
+	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
+	assert(X->no >= X->size);
+	assert(Y->no >= Y->size);
+	xbno = X->no - (X->size-1);
+	bno = R->no ? R->no : (xbno);
+	/* Èç¹ûYµÄsize´óÓÚµÈÓÚXµÄsize£¬´ÓX¿ªÊ¼£»
+	 * Èç¹ûYµÄsizeĞ¡ÓÚXµÄsize£¬´ÓYµÄµÚÒ»¸öÔªËØÔÚXÖĞ¶ÔÓ¦µÄÎ»ÖÃ¿ªÊ¼
+	 * ------------------- X
+	 *      -------------- Y
+	 *      -------------- R */
+	if (Y->size < X->size) {
+		int y0_xno = xbno + X->size - Y->size; /* YÊı×éÖĞµÄµÚÒ»¸öÔªËØÔÚXÖĞµÄ±àºÅ */
+		if (bno < y0_xno) {
+			bno = y0_xno;
+		}
+	}
+	
+	int rsize = X->size > Y->size ? Y->size : X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int yi = Y->size - 1;
+	int ri = R->size - 1;
+	for (int eno = X->no; eno >= bno; --eno, --xi, --yi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(yi >= 0 && yi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi) - valueGet(Y, yi);
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
-/* R:=REF(X,N); */
-Value *REF(const Value *X, int N, Value *R);
+Value *MUL(const Value *X, const Value *Y, Value *R)
+{
+	int bno; /* ¿ªÊ¼±àºÅ */
+	int xbno; /* XµÄ¿ªÊ¼±àºÅ */
+	
+	assert(X && Y);
+	if (!X || !Y || X->size == 0 || Y->size == 0)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	/* ´ÓÉÏ´ÎµÄ±àºÅ¿ªÊ¼
+	 * XÖĞvaluesÖĞsize-1¶ÔÓ¦X->no */
+	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
+	assert(X->no >= X->size);
+	assert(Y->no >= Y->size);
+	xbno = X->no - (X->size-1);
+	bno = R->no ? R->no : (xbno);
+	/* Èç¹ûYµÄsize´óÓÚµÈÓÚXµÄsize£¬´ÓX¿ªÊ¼£»
+	 * Èç¹ûYµÄsizeĞ¡ÓÚXµÄsize£¬´ÓYµÄµÚÒ»¸öÔªËØÔÚXÖĞ¶ÔÓ¦µÄÎ»ÖÃ¿ªÊ¼
+	 * ------------------- X
+	 *      -------------- Y
+	 *      -------------- R */
+	if (Y->size < X->size) {
+		int y0_xno = xbno + X->size - Y->size; /* YÊı×éÖĞµÄµÚÒ»¸öÔªËØÔÚXÖĞµÄ±àºÅ */
+		if (bno < y0_xno) {
+			bno = y0_xno;
+		}
+	}
+	
+	int rsize = X->size > Y->size ? Y->size : X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int yi = Y->size - 1;
+	int ri = R->size - 1;
+	for (int eno = X->no; eno >= bno; --eno, --xi, --yi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(yi >= 0 && yi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi) * valueGet(Y, yi);
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
-/* R:=MAX(X,M) */
-Value *MAX(const Value *X, double M, Value *R);
+Value *DIV(const Value *X, const Value *Y, Value *R)
+{
+	int bno; /* ¿ªÊ¼±àºÅ */
+	int xbno; /* XµÄ¿ªÊ¼±àºÅ */
+	
+	assert(X && Y);
+	if (!X || !Y || X->size == 0 || Y->size == 0)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	/* ´ÓÉÏ´ÎµÄ±àºÅ¿ªÊ¼
+	 * XÖĞvaluesÖĞsize-1¶ÔÓ¦X->no */
+	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
+	assert(X->no >= X->size);
+	assert(Y->no >= Y->size);
+	xbno = X->no - (X->size-1);
+	bno = R->no ? R->no : (xbno);
+	/* Èç¹ûYµÄsize´óÓÚµÈÓÚXµÄsize£¬´ÓX¿ªÊ¼£»
+	 * Èç¹ûYµÄsizeĞ¡ÓÚXµÄsize£¬´ÓYµÄµÚÒ»¸öÔªËØÔÚXÖĞ¶ÔÓ¦µÄÎ»ÖÃ¿ªÊ¼
+	 * ------------------- X
+	 *      -------------- Y
+	 *      -------------- R */
+	if (Y->size < X->size) {
+		int y0_xno = xbno + X->size - Y->size; /* YÊı×éÖĞµÄµÚÒ»¸öÔªËØÔÚXÖĞµÄ±àºÅ */
+		if (bno < y0_xno) {
+			bno = y0_xno;
+		}
+	}
+	
+	int rsize = X->size > Y->size ? Y->size : X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int yi = Y->size - 1;
+	int ri = R->size - 1;
+	int rno = X->no;
+	for (int kno = X->no; kno >= bno; --kno, --xi, --yi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(yi >= 0 && yi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		if (valueGet(Y, yi) != 0) {
+			double res = valueGet(X, xi) / valueGet(Y, yi);
+			valueSet(R, ri, res);
+		} else {
+			valueSet(R, ri, NAN);
+			// ÎÊÌâ rno = kno;
+		}
+	}
+	R->no = rno;
+	return R;
+}
+
+/* R:=REF(X,N); 
+ * ´Óµ±Ç°ÍùÇ°È¡N¸öÔªËØ
+ * !!! REF²¢²»·ÖÅäĞÂµÄÄÚ´æ£¬ºÍX±£³ÖÍ¬Ò»¿éÄÚ´æ */
+Value *REF(const Value *X, int N, Value *R)
+{
+	assert(X && N >= 0);
+	if (!X || X->size == 0 || X->size < N)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	/* ----------------- X
+	 *              N
+	 * ------------- R */
+	R->values = (double *)X->values;
+	R->size = X->size - N;
+	R->no = X->no - N;
+
+	return R;
+}
+
+/* R:=MAX(X,M)
+ * X > M ? X : M */
+Value *MAX(const Value *X, double M, Value *R)
+{
+	assert(X);
+	if (!X || X->size == 0)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	int rsize = X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	int xbno = X->no - (X->size-1); /* XÖĞµÚÒ»¸öÔªËØµÄ¿ªÊ¼±àºÅ */
+	int bno = R->no ? R->no : xbno; /* ¿ªÊ¼±àºÅ */
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int ri = R->size - 1;
+	for (int kno = X->no; kno >= bno; --kno, --xi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi);
+		res = res > M ? res : M;
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
 /* R:=ABS(X,M) */
-Value *ABS(const Value *X, double M, Value *R);
+Value *ABS(const Value *X, Value *R)
+{
+	assert(X);
+	if (!X || X->size == 0)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	int rsize = X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	int xbno = X->no - (X->size-1); /* XÖĞµÚÒ»¸öÔªËØµÄ¿ªÊ¼±àºÅ */
+	int bno = R->no ? R->no : xbno; /* ¿ªÊ¼±àºÅ */
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int ri = R->size - 1;
+	for (int kno = X->no; kno >= bno; --kno, --xi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi);
+		res = abs(res);
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
-/* R:=HHV(X, N) */
-Value *HHV(const Value *X, int N, Value *R);
+/* R:=HHV(X, N) 
+ * --------------- X
+ *   N  ---------- R */
+Value *HHV(const Value *X, int N, Value *R)
+{
+	assert(X && N >= 0);
+	if (!X || X->size == 0 || X->size < N)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	int rsize = X->size - N + 1;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	int xbno = X->no - (X->size-1); /* XÖĞµÚÒ»¸öÔªËØµÄ¿ªÊ¼±àºÅ */
+	int bno = R->no ? R->no : xbno; /* ¿ªÊ¼±àºÅ */
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int ri = R->size - 1;
+	for (int kno = X->no; kno >= bno; --kno, --xi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi);
+		for (int j = xi, count = 1; j >= 0 && count < N; --j, ++count) {
+			double f = valueGet(X, j);
+			if (f > res) {
+				res = f;
+			}
+		}
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
 /* R:=LLV(X, N) */
-Value *LLV(const Value *X, int N, Value *R);
+Value *LLV(const Value *X, int N, Value *R)
+{
+	assert(X && N >= 0);
+	if (!X || X->size == 0 || X->size < N)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	int rsize = X->size - N + 1;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	int xbno = X->no - (X->size-1); /* XÖĞµÚÒ»¸öÔªËØµÄ¿ªÊ¼±àºÅ */
+	int bno = R->no ? R->no : xbno; /* ¿ªÊ¼±àºÅ */
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int ri = R->size - 1;
+	for (int kno = X->no; kno >= bno; --kno, --xi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi);
+		for (int j = xi, count = 1; j >= 0 && count < N; --j, ++count) {
+			double f = valueGet(X, j);
+			if (f < res) {
+				res = f;
+			}
+		}
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
 /* MA
-	è¿”å›ç®€å•ç§»åŠ¨å¹³å‡
-	ç”¨æ³•ï¼šMA(X,M)ï¼šXçš„Mæ—¥ç®€å•ç§»åŠ¨å¹³å‡ */
-Value *MA(const Value *X, int M, Value *R);
+	·µ»Ø¼òµ¥ÒÆ¶¯Æ½¾ù
+	ÓÃ·¨£ºMA(X,M)£ºXµÄMÈÕ¼òµ¥ÒÆ¶¯Æ½¾ù */
+Value *MA(const Value *X, int M, Value *R)
+{
+	assert(X && M > 0);
+	if (!X || X->size == 0 || X->size < M)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	int rsize = X->size - M + 1;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	int xbno = X->no - (X->size-1); /* XÖĞµÚÒ»¸öÔªËØµÄ¿ªÊ¼±àºÅ */
+	int bno = R->no ? R->no : xbno; /* ¿ªÊ¼±àºÅ */
+	
+	/* ´ÓÊı×éµÄºóÃæ¿ªÊ¼ */
+	int xi = X->size - 1;
+	int ri = R->size - 1;
+	for (int kno = X->no; kno >= bno; --kno, --xi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = 0;
+		for (int j = xi, count = 1; j >= 0 && count < M; --j, ++count) {
+			res += valueGet(X, j);
+		}
+		res = res / M;
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
 /* EMA
-	è¿”å›æŒ‡æ•°ç§»åŠ¨å¹³å‡
-	ç”¨æ³•ï¼šEMA(X,M)ï¼šXçš„Mæ—¥æŒ‡æ•°ç§»åŠ¨å¹³å‡
-	ç®—æ³•ï¼šY = (X*2 + Y'*(M-1)) / (M+1) */
-Value *EMA(const Value *X, int M, Value *R);
+	·µ»ØÖ¸ÊıÒÆ¶¯Æ½¾ù
+	ÓÃ·¨£ºEMA(X,M)£ºXµÄMÈÕÖ¸ÊıÒÆ¶¯Æ½¾ù
+	Ëã·¨£ºY = (X*2 + Y'*(M-1)) / (M+1) */
+Value *EMA(const Value *X, int M, Value *R)
+{
+	assert(X && M >= 0);
+	if (!X || X->size == 0)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	int rsize = X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	int xbno = X->no - (X->size-1); /* XÖĞµÚÒ»¸öÔªËØµÄ¿ªÊ¼±àºÅ */
+	int bno = R->no ? R->no : xbno; /* ¿ªÊ¼±àºÅ */
+	
+	/* ´ÓÇ°Íùºó¼ÆËã */
+	int nosize = X->no - bno + 1;
+	int xi = X->size - nosize;
+	int ri = R->size - nosize;
+	for (int kno = bno; kno <= X->no; ++kno, ++xi, ++ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi);
+		if (ri > 0) { /* ÓĞÖµ */
+			double y = valueGet(R, ri-1);
+			assert(isValueValid(y));
+			res = (res * 2.0 + y * (M - 1)) / (M + 1);
+		}
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 		
 /* SMA
-	è¿”å›å¹³æ»‘ç§»åŠ¨å¹³å‡
-	ç”¨æ³•ï¼šSMA(X,N,M)ï¼šXçš„Næ—¥ç§»åŠ¨å¹³å‡ï¼ŒMä¸ºæƒé‡
-	ç®—æ³•ï¼šY = (X*M + Y'*(N-M)) / N */
-Value *SMA(const Value *X, int N, int M, Value *R);
+	·µ»ØÆ½»¬ÒÆ¶¯Æ½¾ù
+	ÓÃ·¨£ºSMA(X,N,M)£ºXµÄNÈÕÒÆ¶¯Æ½¾ù£¬MÎªÈ¨ÖØ
+	Ëã·¨£ºY = (X*M + Y'*(N-M)) / N */
+Value *SMA(const Value *X, int N, int M, Value *R)
+{
+	assert(X && M >= 0 && N > 0);
+	if (!X || X->size == 0)
+		return R;
+	if (!R) {
+		R = valueNew();
+		if (!R)
+			return 0;
+	}
+	
+	int rsize = X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	int xbno = X->no - (X->size-1); /* XÖĞµÚÒ»¸öÔªËØµÄ¿ªÊ¼±àºÅ */
+	int bno = R->no ? R->no : xbno; /* ¿ªÊ¼±àºÅ */
+	
+	/* ´ÓÇ°Íùºó¼ÆËã */
+	int nosize = X->no - bno + 1;
+	int xi = X->size - nosize;
+	int ri = R->size - nosize;
+	for (int kno = bno; kno <= X->no; ++kno, ++xi, ++ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = valueGet(X, xi);
+		if (ri > 0) { /* ÓĞÖµ */
+			double y = valueGet(R, ri-1);
+			assert(isValueValid(y));
+			res = (res * M + y * (N - M)) / N;
+		}
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
 
 }
