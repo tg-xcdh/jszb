@@ -31,16 +31,20 @@ namespace tg {
  *			;
  */
 
+/* ------ Parser开始 ------ */
+
 /* handleError返回0表示继续, 返回1表示中断 */
-void *parserNew(void *userdata, int (*handleError)(int lineno, int charpos, int error, const char *errmsg, void *userdata));
+void *parserNew(void *errdata, int (*handleError)(int lineno, int charpos, int error, const char *errmsg, void *errdata));
 void parserFree(void *p);
 
 int parserParseFile(void *p, const char *filename);
 int parserParse(void *p, const char *str, int len);
 
-int parserInterpret(void *p, void *ctx);
+int parserInterp(void *p, void *userdata);
 
 double parserGetIndicator(void *p, const char *name);
+
+/* ------ Parser结束 ------ */
 
 }
 

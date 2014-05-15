@@ -5,8 +5,13 @@
 
 namespace tg {
 
+static const char TYPE_INT = 1;
+static const char TYPE_DOUBLE = 2;
+static const char TYPE_ARRAY = 3;
+
 struct Value {
 	bool isOwnMem;
+	char type;
 	union {
 		int64_t i;
 		double f;
@@ -28,11 +33,20 @@ struct Quote {
 	Value *close;
 };
 
-/* 测试时data实际是struct Quote * */
-const Value *OPEN(void *data);
-const Value *HIGH(void *data);
-const Value *LOW(void *data);
-const Value *CLOSE(void *data);
+/* 注册变量，例如OPEN,CLOSE等;
+ * 注册函数，例如MA，SMA等 */
+typedef Value *(*ValueFn)(void *parser, int argc, const Value **args, Value *R);
+int registerVariable(const char *name, ValueFn fn);
+ValueFn findVariable(const char *name);
+
+int registerFunction(const char *name, ValueFn fn);
+ValueFn findFunction(const char *name);
+
+
+const Value *OPEN(void *parser);
+const Value *HIGH(void *parser);
+const Value *LOW(void *parser);
+const Value *CLOSE(void *parser);
 
 /* 问题:生成新Value的时候,内存分配多大???
  * 例如对于

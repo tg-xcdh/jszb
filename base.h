@@ -23,7 +23,8 @@ enum Level {
 	WARN,
 	ERROR,
 	FATAL,
-	LDEBUG
+	LDEBUG,
+	RAWLOG, /* 不带任何附件信息的 */
 };
 
 #ifdef CONFIG_LOG_DEBUG
@@ -35,6 +36,7 @@ enum Level {
 #define warn(...) doLog(WARN, __FILE__, __LINE__, __VA_ARGS__)
 #define error(...) doLog(ERROR, __FILE__, __LINE__, __VA_ARGS__)
 #define fatal(...) doLog(FATAL, __FILE__, __LINE__, __VA_ARGS__)
+#define rawlog(...) doLog(RAWLOG, __FILE__, __LINE__, __VA_ARGS__)
 
 void doLog(int level, const char *filename, int line, const char *fmt, ...);
 

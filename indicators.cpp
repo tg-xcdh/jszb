@@ -9,6 +9,7 @@
 #include <limits>
 
 #include "base.h"
+#include "parser-impl.h"
 
 namespace tg {
 
@@ -77,30 +78,34 @@ int isValueValid(double f)
 }
 
 
-const Value *OPEN(void *data)
+const Value *OPEN(void *parser)
 {
-	Quote *q = (Quote *)data;
+	Parser *par = (Parser *)parser;
+	Quote *q = (Quote *)par->userdata;
 	assert(q);
 	return q->open;
 }
 
-const Value *HIGH(void *data)
+const Value *HIGH(void *parser)
 {
-	Quote *q = (Quote *)data;
+	Parser *par = (Parser *)parser;
+	Quote *q = (Quote *)par->userdata;
 	assert(q);
 	return q->high;
 }
 
-const Value *LOW(void *data)
+const Value *LOW(void *parser)
 {
-	Quote *q = (Quote *)data;
+	Parser *par = (Parser *)parser;
+	Quote *q = (Quote *)par->userdata;
 	assert(q);
 	return q->low;
 }
 
-const Value *CLOSE(void *data)
+const Value *CLOSE(void *parser)
 {
-	Quote *q = (Quote *)data;
+	Parser *par = (Parser *)parser;
+	Quote *q = (Quote *)par->userdata;
 	assert(q);
 	return q->close;
 }

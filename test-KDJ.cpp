@@ -23,6 +23,11 @@ void testKDJ()
 	void *parser = parserNew(0, testHandleError);
 	
 	parserParse(parser, FOUMULA, strlen(FOUMULA));
+	if (!parserInterp(parser, 0)) {
+		info("解释运行成功\n");
+	} else {
+		warn("解释运行失败\n");
+	}
 	
 	parserFree(parser);
 	

@@ -24,7 +24,7 @@ static void getLocalTime(struct tm *t)
 void doLog(int level, const char *filename, int line, const char *fmt, ...)
 {
 	va_list va;
-	const char *prefix = "[]";
+	const char *prefix = "";
 #ifdef CONFIG_LOG_TIME
 	struct tm t;
 #endif
@@ -47,6 +47,9 @@ void doLog(int level, const char *filename, int line, const char *fmt, ...)
 	case LDEBUG:
 		prefix = "DEBUG ";
 		break;
+	case RAWLOG:
+		prefix = "";
+		break;
 	default:
 		assert(0);
 		break;
@@ -58,9 +61,11 @@ void doLog(int level, const char *filename, int line, const char *fmt, ...)
 	
 	va_start(va, fmt);
 #ifdef CONFIG_LOG_TIME
-	printf("%d-%02d-%02d %02d:%02d:%02d %s",
-		t.tm_year+1990, t.tm_mon+1, t.tm_mday,
-		t.tm_hour, t.tm_min, t.tm_sec, prefix);
+	if (level != RAWLOG) {
+		printf("%d-%02d-%02d %02d:%02d:%02d %s",
+			t.tm_year+1990, t.tm_mon+1, t.tm_mday,
+			t.tm_hour, t.tm_min, t.tm_sec, prefix);
+	}
 #else
 	printf("%s", prefix);
 #endif

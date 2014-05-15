@@ -23,6 +23,8 @@ enum Token {
 	TK_ALL
 };
 
+const char *token2str(enum Token tok);
+
 struct Lexer {
 	char *code; /* 全部载入内存的代码 */
 	int capacity;

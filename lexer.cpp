@@ -10,6 +10,31 @@
 
 namespace tg {
 
+const char *token2str(enum Token tok)
+{
+	switch (tok) {
+	case TK_ID			: return "ID"; /* 标识符 [a-zA-Z]([a-zA-Z0-9])* */
+	case TK_INT			: return "INT"; /* 整数 [0-9]+ */
+	case TK_DECIMAL		: return "DECIMAL"; /* 小数 [0-9]*\.[0-9]+ */
+	case TK_COLON		: return ":"; /* : */
+	case TK_COLON_EQ	: return ":="; /* := */
+	case TK_SEMICOLON	: return ";"; /* ; */
+	case TK_LP			: return "("; /* ( */
+	case TK_RP			: return ")"; /* ) */
+	case TK_COMMA		: return ","; /* , */
+	case TK_ADD			: return "+"; /* + */
+	case TK_SUB			: return "-"; /* - */
+	case TK_MUL			: return "*"; /* * */
+	case TK_DIV			: return "/"; /* / */
+	case TK_EOF			: return "EOF"; /* 表示结束 */
+	case TK_ERR			: return "ERR"; /* 表示错误 */
+	case TK_NONE		: return "NONE"; /* 表示什么都不是 */
+	case TK_ALL			: return "ALL";
+	default:break;
+	}
+	return "未知token";
+}
+
 Lexer *lexerNew()
 {
 	Lexer *l = (Lexer *)malloc(sizeof(*l));

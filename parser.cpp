@@ -13,7 +13,9 @@
 namespace tg {
 
 #ifdef CONFIG_LOG_PARSER
+//#define LOG_PARSE
 //#define LOG_CLEAN
+#define LOG_INTERP
 #endif
 
 /* 使用notepad++,在windows和linux下统一使用ANSI编码格式 */
@@ -26,6 +28,8 @@ static void nodeFree(Node *node)
 	node->clean(node);
 	free(node);
 }
+
+/* ------ clean开始 ------ */
 
 static void formulaClean(Node *node)
 {
@@ -112,12 +116,183 @@ static void binaryExprClean(Node *node)
 	}
 }
 
+/* ------ clean结束 ------ */
+
+/* ------ interp开始 ------ */
+
+#ifdef LOG_INTERP
+static void logInterpPrefix(void *parser)
+{
+	for (int i = 0; i < ((Parser *)parser)->interpDepth; ++i) {
+		rawlog("\t");
+	}
+}
+#endif
+
+static Value *formulaInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_FORMULA);
+#endif
+	Formula *e = (Formula *)node;
+#ifdef LOG_INTERP
+	rawlog("formulaInterp\n");
+	((Parser *)parser)->interpDepth++;
+#endif
+	for (int i = 0; i < e->stmts.size; ++i) {
+		Stmt **arr = (Stmt **)e->stmts.data;
+		Node *nd = (Node *)arr[i];
+		nd->interp(nd, parser);
+	}
+#ifdef LOG_INTERP
+	((Parser *)parser)->interpDepth--;
+#endif
+	return 0;
+}
+
+static Value *stmtInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_STMT);
+#endif
+	Stmt *e = (Stmt *)node;
+	assert(e->op == TK_COLON_EQ || e->op == TK_COLON);
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("stmtInterp\n");
+	((Parser *)parser)->interpDepth++;
+	logInterpPrefix(parser);
+	rawlog("%s\n", e->id.data);
+	logInterpPrefix(parser);
+	rawlog("%s\n", token2str(e->op));
+#endif
+	assert(e->expr);
+	e->expr->interp(e->expr, parser);
+#ifdef LOG_INTERP
+	((Parser *)parser)->interpDepth--;
+#endif
+	return 0;
+}
+
+static Value *intExprInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_INT_EXPR);
+#endif
+	IntExpr *e = (IntExpr *)node;
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("intExprInterp %lld\n", e->val);
+#endif
+	return 0;
+}
+
+static Value *decimalExprInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_DECIMAL_EXPR);
+#endif
+	DecimalExpr *e = (DecimalExpr *)node;
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("decimalExprInterp %f\n", e->val);
+#endif
+	return 0;
+}
+
+static Value *idExprInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_ID_EXPR);
+#endif
+	IdExpr *e = (IdExpr *)node;
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("idExprInterp %s\n", e->val.data);
+#endif
+	return 0;
+}
+
+static Value *exprListInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_EXPR_LIST);
+#endif
+	ExprList *e = (ExprList *)node;
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("exprListInterp\n");
+	((Parser *)parser)->interpDepth++;
+#endif
+	for (int i = 0; i < e->exprs.size; ++i) {
+		Expr **arr = (Expr **)e->exprs.data;
+		Node *nd = (Node *)arr[i];
+		nd->interp(nd, parser);
+	}
+#ifdef LOG_INTERP
+	((Parser *)parser)->interpDepth--;
+#endif
+	return 0;
+}
+
+static Value *funcCallInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_FUNC_CALL);
+#endif
+	FuncCall *e = (FuncCall *)node;
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("funcCallInterp\n");
+	((Parser *)parser)->interpDepth++;
+	logInterpPrefix(parser);
+	rawlog("%s\n", e->id.data);
+#endif
+	if (e->args) {
+		e->args->node.interp((Node *)e->args, parser);
+	}
+#ifdef LOG_INTERP
+	((Parser *)parser)->interpDepth--;
+#endif
+	return 0;
+}
+
+static Value *binaryExprInterp(Node *node, void *parser)
+{
+#ifndef NDEBUG
+	assert(node->type == NT_BINARY_EXPR);
+#endif
+	BinaryExpr *e = (BinaryExpr *)node;
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("binaryExprInterp\n");
+	((Parser *)parser)->interpDepth++;
+#endif
+	assert(e->lhs && e->rhs);
+	e->lhs->interp(e->lhs, parser);
+	e->rhs->interp(e->rhs, parser);
+#ifdef LOG_INTERP
+	logInterpPrefix(parser);
+	rawlog("%s\n", token2str(e->op));
+	((Parser *)parser)->interpDepth--;
+#endif
+	return 0;
+}
+
+/* ------ interp结束 ------ */
+
+/* ------ new开始 ------ */
+
 static Formula *formulaNew(Array *arr)
 {
 	Formula *fm = (Formula *)malloc(sizeof(*fm));
 	if (!fm)
 		return 0;
+#ifndef NDEBUG
+	fm->node.type = NT_FORMULA;
+#endif
 	fm->node.clean = formulaClean;
+	fm->node.interp = formulaInterp;
 	fm->stmts = *arr;
 #ifndef NDEBUG
 	memset(arr, 0, sizeof(*arr));
@@ -132,7 +307,11 @@ static Stmt *stmtNew(String *id, enum Token tok, Node *expr)
 		return 0;
 	assert(tok == TK_COLON_EQ || tok == TK_COLON);
 	assert(expr);
+#ifndef NDEBUG
+	st->node.type = NT_STMT;
+#endif
 	st->node.clean = stmtClean;
+	st->node.interp = stmtInterp;
 	st->id = *id;
 #ifndef NDEBUG
 	memset(id, 0, sizeof(*id));
@@ -147,7 +326,11 @@ static IntExpr *intExprNew(int64_t val)
 	IntExpr *e = (IntExpr *)malloc(sizeof(*e));
 	if (!e)
 		return 0;
+#ifndef NDEBUG
+	e->node.type = NT_INT_EXPR;
+#endif
 	e->node.clean = intExprClean;
+	e->node.interp = intExprInterp;
 	e->val = val;
 	return e;
 }
@@ -157,7 +340,11 @@ static DecimalExpr *decimalExprNew(double val)
 	DecimalExpr *e = (DecimalExpr *)malloc(sizeof(*e));
 	if (!e)
 		return 0;
+#ifndef NDEBUG
+	e->node.type = NT_DECIMAL_EXPR;
+#endif
 	e->node.clean = decimalExprClean;
+	e->node.interp = decimalExprInterp;
 	e->val = val;
 	return e;
 }
@@ -167,7 +354,11 @@ static IdExpr *idExprNew(String *val)
 	IdExpr *e = (IdExpr *)malloc(sizeof(*e));
 	if (!e)
 		return 0;
+#ifndef NDEBUG
+	e->node.type = NT_ID_EXPR;
+#endif
 	e->node.clean = idExprClean;
+	e->node.interp = idExprInterp;
 	e->val = *val;
 #ifndef NDEBUG
 	memset(val, 0, sizeof(*val));
@@ -180,7 +371,11 @@ static ExprList *exprListNew(Array *arr)
 	ExprList *e = (ExprList *)malloc(sizeof(*e));
 	if (!e)
 		return 0;
+#ifndef NDEBUG
+	e->node.type = NT_EXPR_LIST;
+#endif
 	e->node.clean = exprListClean;
+	e->node.interp = exprListInterp;
 	e->exprs = *arr;
 #ifndef NDEBUG
 	memset(arr, 0, sizeof(*arr));
@@ -193,7 +388,11 @@ static FuncCall *funcCallNew(String *id, ExprList *args)
 	FuncCall *e = (FuncCall *)malloc(sizeof(*e));
 	if (!e)
 		return 0;
+#ifndef NDEBUG
+	e->node.type = NT_FUNC_CALL;
+#endif
 	e->node.clean = funcCallClean;
+	e->node.interp = funcCallInterp;
 	e->id = *id;
 	e->args = args;
 #ifndef NDEBUG
@@ -207,16 +406,22 @@ static BinaryExpr *binaryExprNew(Node *lhs, enum Token op, Node *rhs)
 	BinaryExpr *e = (BinaryExpr *)malloc(sizeof(*e));
 	if (!e)
 		return 0;
+#ifndef NDEBUG
+	e->node.type = NT_BINARY_EXPR;
+#endif
 	e->node.clean = binaryExprClean;
+	e->node.interp = binaryExprInterp;
 	e->lhs = lhs;
 	e->op = op;
 	e->rhs = rhs;
 	return e;
 }
 
+/* ------ new结束 ------ */
+
 /* ------ AST结束 ------ */
 
-void *parserNew(void *userdata, int (*handleError)(int lineno, int charpos, int error, const char *errmsg, void *userdata))
+void *parserNew(void *errdata, int (*handleError)(int lineno, int charpos, int error, const char *errmsg, void *errdata))
 {
 	Parser *p = (Parser *)malloc(sizeof(*p));
 	if (!p)
@@ -225,11 +430,14 @@ void *parserNew(void *userdata, int (*handleError)(int lineno, int charpos, int 
 	p->tok = TK_NONE;
 	p->tokval = 0;
 	p->toklen = 0;
-	p->userdata = userdata;
+	p->errdata = errdata;
 	p->handleError = handleError;
 	p->errcount = 0;
 	p->isquit = false;
 	p->ast = 0;
+#ifdef CONFIG_LOG_PARSER
+	p->interpDepth = 0;
+#endif
 	return p;
 }
 
@@ -251,7 +459,7 @@ static bool handleParserError(Parser *p, int error, const char *errmsg)
 {
 	++p->errcount;
 	if (!p->handleError || (p->handleError)(p->lex->lineno, p->lex->charpos,
-											error, errmsg, p->userdata)) {
+											error, errmsg, p->errdata)) {
 		p->isquit = true;
 		return true;
 	}
@@ -287,7 +495,7 @@ static ExprList *parseExprList(Parser *p)
 	} while (1);
 	
 	if (ok) {
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 		info("解析得到ExprList\n");
 #endif
 		return exprListNew(&args);
@@ -308,7 +516,7 @@ static Node *parseIdOrFuncCall(Parser *p)
 		p->tok = lexerGetToken(p->lex, &p->tokval, &p->toklen);
 		arg = parseExprList(p);
 		if (p->tok == TK_RP) {
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 			info("解析得到FuncCall\n");
 #endif
 			expr = (Node *)funcCallNew(&id, arg);
@@ -317,7 +525,7 @@ static Node *parseIdOrFuncCall(Parser *p)
 			handleParserError(p, 1, "解析FuncCall,缺少)");
 		}
 	} else {
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 		info("解析得到IdExpr\n");
 #endif
 		expr = (Node *)idExprNew(&id);
@@ -332,7 +540,7 @@ static Node *parseUnaryExpr(Parser *p)
 	if (p->tok == TK_INT) {
 		char ch = p->tokval[p->toklen];
 		p->tokval[p->toklen] = '\0';
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 		info("解析得到IntExpr\n");
 #endif
 		expr = (Node *)intExprNew(atoll(p->tokval));
@@ -341,7 +549,7 @@ static Node *parseUnaryExpr(Parser *p)
 	} else if (p->tok == TK_DECIMAL) {
 		char ch = p->tokval[p->toklen];
 		p->tokval[p->toklen] = '\0';
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 		info("解析得到DecimalExpr\n");
 #endif
 		expr = (Node *)decimalExprNew(atof(p->tokval));
@@ -353,7 +561,7 @@ static Node *parseUnaryExpr(Parser *p)
 		p->tok = lexerGetToken(p->lex, &p->tokval, &p->toklen);
 		expr = parseExpr(p);
 		if (p->tok == TK_RP) {
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 			info("解析得到(expr)\n");
 #endif
 			p->tok = lexerGetToken(p->lex, &p->tokval, &p->toklen);
@@ -435,7 +643,7 @@ static Node *parseExpr(Parser *p)
 		if (prec > 0) {
 			Node *e2 = parseBinaryExpr(p, &expr, prec);
 			if (e2) {
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 				info("解析得到BinaryExpr\n");
 #endif
 				expr = e2;
@@ -464,7 +672,7 @@ static Stmt *parseStmt(Parser *p)
 		Node *expr = parseExpr(p);
 		if (expr) {
 			if (p->tok == TK_SEMICOLON) {
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 				info("解析得到stmt\n");
 #endif
 				return stmtNew(&id, op, expr);
@@ -506,7 +714,7 @@ static Formula *parseFormula(Parser *p)
 	} while (1);
 	
 end:
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 	info("解析得到formula\n");
 #endif
 	return formulaNew(&stmts);
@@ -517,7 +725,7 @@ end:
 
 static int parseAST(Parser *p)
 {
-#ifdef CONFIG_LOG_PARSER
+#ifdef LOG_PARSE
 	info("开始解析AST\n");
 #endif
 	p->ast = parseFormula(p);
@@ -576,6 +784,18 @@ end:
 		yacc->lex = 0;
 	}
 	return ret;
+}
+
+int parserInterp(void *p, void *userdata)
+{
+	Parser *yacc = (Parser *)p;
+	if (!yacc || !yacc->ast)
+		return -1;
+	assert(yacc->userdata == 0 || yacc->userdata == userdata);
+	yacc->userdata = userdata;
+	yacc->ast->node.interp((Node *)yacc->ast, p);
+	
+	return 0;
 }
 
 }

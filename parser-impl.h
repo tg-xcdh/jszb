@@ -1,6 +1,8 @@
 #ifndef TG_INDICATOR_PARSER_IMPL_H
 #define TG_INDICATOR_PARSER_IMPL_H
 
+#include "lexer.h"
+
 namespace tg {
 
 /* ------ AST开始 ------ */
@@ -9,18 +11,24 @@ enum NodeType {
 	NT_NONE = TK_ALL + 1, 
 	NT_FORMULA,
 	NT_STMT,
-	NT_EXPR,
-	NT_INT,
-	NT_DECIMAL,
-	NT_ID,
+	NT_INT_EXPR,
+	NT_DECIMAL_EXPR,
+	NT_ID_EXPR,
 	NT_FUNC_CALL,
+	NT_EXPR_LIST,
 	NT_BINARY_EXPR,
 	NT_ALL
 	
 };
 
+struct Value;
+
 struct Node {
+#ifndef NDEBUG
+	enum NodeType type;
+#endif
 	void (*clean)(Node *node);
+	Value *(*interp)(Node *node, void *parser); /* 运行当前节点 */
 };
 
 struct Stmt;
@@ -28,7 +36,7 @@ struct Expr;
 
 struct Formula {
 	struct Node node;
-	Array stmts;
+	Array stmts; // Stmt **
 };
 
 struct Stmt {
@@ -55,7 +63,7 @@ struct IdExpr {
 
 struct ExprList {
 	struct Node node;
-	Array exprs;
+	Array exprs; // Expr **
 };
 
 struct FuncCall {
@@ -81,12 +89,18 @@ public:
 	char *tokval; /* 指向当前token的值(由于缓冲区在lex中,没有以字符'\0'结尾) */
 	int toklen; /* 当前token的长度 */
 	
-	void *userdata;
+	void *errdata;
 	int (*handleError)(int lineno, int charpos, int error, const char *errmsg, void *);
 	int errcount;
 	bool isquit;
 	
 	Formula *ast;
+	
+	void *userdata;
+	
+#ifdef CONFIG_LOG_PARSER
+	int interpDepth; /* 用于在LOG_INTERP时控制打印的前面的空白字符 */
+#endif
 };
 
 }
