@@ -8,7 +8,6 @@ namespace tg {
 static const char TYPE_INT = 1;
 static const char TYPE_DOUBLE = 2;
 static const char TYPE_ARRAY = 3;
-
 struct Value {
 	bool isOwnMem;
 	char type;
@@ -23,6 +22,14 @@ struct Value {
 	 * 编号从1开始，使用编号来标识元素，原因在：例如size=5000，no可以到10000 */
 	int no;
 };
+
+Value *valueNew();
+void valueFree(Value *v);
+
+bool valueExtend(Value *v, int capacity);
+
+double valueGet(const Value *v, int i);
+void valueSet(Value *v, int i, double f);
 
 int isValueValid(double f); /* 值是否有效 */
 
@@ -42,11 +49,10 @@ ValueFn findVariable(const char *name);
 int registerFunction(const char *name, ValueFn fn);
 ValueFn findFunction(const char *name);
 
-
-const Value *OPEN(void *parser);
-const Value *HIGH(void *parser);
-const Value *LOW(void *parser);
-const Value *CLOSE(void *parser);
+/* 把常用的一些变量和函数(如CLOSE,MA等)初始化 */
+void indicatorInit();
+/* 释放资源 */
+void indicatorShutdown();
 
 /* 问题:生成新Value的时候,内存分配多大???
  * 例如对于
@@ -55,6 +61,11 @@ const Value *CLOSE(void *parser);
 		RSI1:SMA(MAX(CLOSE-LC,0),N1,1)/SMA(ABS(CLOSE-LC),N1,1)*100;
  * 如何使得内存分配最小??? 
  */
+ 
+Value *OPEN(void *parser);
+Value *HIGH(void *parser);
+Value *LOW(void *parser);
+Value *CLOSE(void *parser);
 
 /* 算术运算:加减乘除 */
 Value *ADD(const Value *X, const Value *Y, Value *R);
@@ -93,6 +104,27 @@ Value *EMA(const Value *X, int M, Value *R);
 	用法：SMA(X,N,M)：X的N日移动平均，M为权重
 	算法：Y = (X*M + Y'*(N-M)) / N */
 Value *SMA(const Value *X, int N, int M, Value *R);
+
+/* ------------------------------------ 接口开始 ------------------ */
+
+Value *I_OPEN(void *parser, int argc, const Value **args, Value *R);
+Value *I_HIGH(void *parser, int argc, const Value **args, Value *R);
+Value *I_LOW(void *parser, int argc, const Value **args, Value *R);
+Value *I_CLOSE(void *parser, int argc, const Value **args, Value *R);
+Value *I_ADD(void *parser, int argc, const Value **args, Value *R);
+Value *I_SUB(void *parser, int argc, const Value **args, Value *R);
+Value *I_MUL(void *parser, int argc, const Value **args, Value *R);
+Value *I_DIV(void *parser, int argc, const Value **args, Value *R);
+Value *I_REF(void *parser, int argc, const Value **args, Value *R);
+Value *I_MAX(void *parser, int argc, const Value **args, Value *R);
+Value *I_ABS(void *parser, int argc, const Value **args, Value *R);
+Value *I_HHV(void *parser, int argc, const Value **args, Value *R);
+Value *I_LLV(void *parser, int argc, const Value **args, Value *R);
+Value *I_MA(void *parser, int argc, const Value **args, Value *R);
+Value *I_EMA(void *parser, int argc, const Value **args, Value *R);
+Value *I_SMA(void *parser, int argc, const Value **args, Value *R);
+
+/* ------------------------------------ 接口结束 ------------------ */
 
 }
 

@@ -14,6 +14,7 @@ static const char *FOUMULA = ""
 	"RSI3:SMA(MAX(CLOSE-LC,0),N3,1)/SMA(ABS(CLOSE-LC),N3,1)*100;";
 
 using namespace tg;
+namespace tg { struct Quote ; }
 
 void testRSI()
 {
@@ -23,7 +24,8 @@ void testRSI()
 	void *parser = parserNew(0, testHandleError);
 	
 	parserParse(parser, FOUMULA, strlen(FOUMULA));
-	if (!parserInterp(parser, 0)) {
+	extern tg::Quote *q;
+	if (!parserInterp(parser, q)) {
 		info("解释运行成功\n");
 	} else {
 		warn("解释运行失败\n");

@@ -27,6 +27,7 @@ struct Node {
 #ifndef NDEBUG
 	enum NodeType type;
 #endif
+	Value *value;
 	void (*clean)(Node *node);
 	Value *(*interp)(Node *node, void *parser); /* 运行当前节点 */
 };
@@ -48,12 +49,10 @@ struct Stmt {
 
 struct IntExpr {
 	struct Node node;
-	int64_t val;
 };
 
 struct DecimalExpr {
 	struct Node node;
-	double val;
 };
 
 struct IdExpr {

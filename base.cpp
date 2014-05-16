@@ -156,7 +156,219 @@ void *arrayAdd(Array *arr)
 	return data;
 }
 
+void *arrayGet(Array *arr, int i)
+{
+	char *data = (char *)arr->data;
+	return &data[arr->objectSize * i];
+}
+
 /* ------ 数组结束 ------ */
+
+/* ------ 哈希表开始 ------ */
+
+int cstrCmp(const void *key1, const void *key2)
+{
+	const char *s1 = (const char *)key1;
+	const char *s2 = (const char *)key2;
+	if (s1 == s2)
+		return 0;
+	if (!s1)
+		return -1;
+	if (!s2)
+		return 1;
+	return strcmp(s1, s2);
+}
+
+/* https://www.byvoid.com/blog/string-hash-compare */
+// BKDR Hash Function
+static unsigned int BKDRHash(const char *str)
+{
+	unsigned int seed = 131; // 31 131 1313 13131 131313 etc..
+	unsigned int hash = 0;
+	while (*str) {
+		hash = hash * seed + (*str++);
+	}
+	return (hash & 0x7FFFFFFF);
+}
+
+unsigned int cstrHash(const void *key)
+{
+	const char *s = (const char *)key;
+	assert(s);
+	return BKDRHash(s);
+}
+
+int intCmp(const void *key1, const void *key2)
+{
+	int i1 = (int)key1;
+	int i2 = (int)key2;
+	if (i1 < i2)
+		return -1;
+	else if (i2 > i2)
+		return 1;
+	return 0;
+}
+
+unsigned int intHash(const void *key)
+{
+	return (int)key;
+}
+
+int hashTableInit(HashTable *ht, int size, int (*cmp)(const void *, const void *), unsigned int (*hash)(const void *))
+{
+	assert(ht && size > 0 && cmp && hash);
+	ht->size = 0;
+	ht->cmp = cmp;
+	ht->hash = hash;
+	/* 把data和lookups一起分配 */
+	ht->data = (HashNode *)malloc(size * sizeof(HashNode) + size * sizeof(HashNode *));
+	if (!ht->data)
+		return -1;
+	ht->dataCapacity = size;
+	ht->lookups = (HashNode **)&ht->data[size];
+	memset(ht->lookups, 0, size * sizeof(HashNode *));
+	ht->freeNode = &ht->data[0];
+	for (int i = 1; i < ht->dataCapacity; ++i) {
+		ht->data[i-1].next = &ht->data[i];
+	}
+	ht->data[ht->dataCapacity-1].next = 0;
+	return 0;
+}
+
+void hashTableFree(HashTable *ht)
+{
+	if (ht) {
+		free(ht->data);
+#ifndef NDEBUG
+		ht->data = 0;
+		ht->lookups = 0;
+#endif
+	}
+}
+
+static unsigned int hashTableHash(HashTable *ht, const void *key)
+{
+	unsigned int h;
+	int hashsize = ht->dataCapacity;
+	h = ht->hash(key);
+	h = h % hashsize; // 维持2次幂???
+	return h;
+}
+
+static void hashTableInsertWithHash(HashTable *ht, unsigned int hash, const void *key, void *value)
+{
+	HashNode *next;
+	assert(ht->freeNode && ht->size < ht->dataCapacity);
+	ht->freeNode->key = key;
+	ht->freeNode->value = value;
+	next = ht->freeNode;
+	ht->freeNode->next = ht->lookups[hash];
+	ht->lookups[hash] = ht->freeNode;
+	ht->freeNode = next;
+	ht->size++;
+}
+
+int hashTableInsert(HashTable *ht, const void *key, void *value, void **oldvalue)
+{
+	unsigned int h;
+	HashNode *ph;
+	assert(ht);
+	if (oldvalue)
+		*oldvalue = 0;
+	int hashsize = ht->dataCapacity;
+	h = ht->hash(key);
+	h = h % hashsize; // 维持2次幂???
+	ph = ht->lookups[h];
+	
+	while (ph) { /* 同一hash的元素已经存在过 */
+		if (!ht->cmp(ph->key, key)) { /* 覆盖原有元素 */
+			if (oldvalue)
+				*oldvalue = ph->value;
+			ph->value = value;
+			return 0;
+		}
+		ph = ph->next;
+	}
+	
+	if (ht->size >= ht->dataCapacity) { /* 需要自动扩展大小，问题:是否可以保持用于hash的hashsize不变??? */
+		HashTable ht2;
+		if (hashTableInit(&ht2, ht->size*2, ht->cmp, ht->hash)) {
+			return -1;
+		}
+		for (int i = 0; i < ht->dataCapacity; ++i) {
+			HashNode *p = ht->lookups[i];
+			if (!p)
+				continue;
+			while (p) {
+				unsigned int h2 = hashTableHash(&ht2, p->key);
+				hashTableInsertWithHash(&ht2, h2, p->key, p->value);
+				p = p->next;
+			}
+		}
+		hashTableFree(ht);
+		*ht = ht2;
+	}
+	h = h % ht->dataCapacity;
+	assert(h >= 0 && (int)h < ht->dataCapacity);
+	hashTableInsertWithHash(ht, h, key, value);
+	return 0;
+}
+
+int hashTableFind(HashTable *ht, const void *key, void **value)
+{
+	unsigned int h;
+	HashNode *ph;
+	if (value)
+		*value = 0;
+	if (!ht)
+		return -1;
+	h = hashTableHash(ht, key);
+	assert(h >= 0 && (int)h < ht->dataCapacity);
+	ph = ht->lookups[h];
+	
+	while (ph) { /* 同一hash的元素已经存在过 */
+		if (!ht->cmp(ph->key, key)) {
+			if (value)
+				*value = ph->value;
+			ph->value = value;
+			return 0;
+		}
+		ph = ph->next;
+	}
+	
+	return -1;
+}
+
+int hashTableRemove(HashTable *ht, const void *key, void **value)
+{
+	unsigned int h;
+	HashNode *ph;
+	HashNode **ppnext;
+	if (value)
+		*value = 0;
+	if (!ht)
+		return -1;
+	h = hashTableHash(ht, key);
+	assert(h >= 0 && (int)h < ht->dataCapacity);
+	ph = ht->lookups[h];
+	ppnext = &ht->lookups[h];
+	
+	while (ph) { /* 同一hash的元素已经存在过 */
+		if (!ht->cmp(ph->key, key)) {
+			if (value)
+				*value = ph->value;
+			*ppnext = ph->next;
+			ph->next = ht->freeNode;
+			ht->freeNode = ph;
+			return 0;
+		}
+		ppnext = &(ph->next);
+		ph = ph->next;
+	}
+	return -1;
+}
+
+/* ------ 哈希表结束 ------ */
 
 }
 

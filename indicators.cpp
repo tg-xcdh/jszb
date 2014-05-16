@@ -18,12 +18,77 @@ namespace tg {
 #define NAN (std::numeric_limits<double>::quiet_NaN())
 #endif
 
+static HashTable variableCtx; /* <char *, ValueFn> 所有变量，例如CLOSE */
+static HashTable functionCtx; /* <char *, ValueFn> 所有函数，例如MA */
+
+int registerVariable(const char *name, ValueFn fn)
+{
+	if (hashTableInsert(&variableCtx, (const void *)name, (void *)fn, 0))
+		return -1;
+	return 0;
+}
+
+ValueFn findVariable(const char *name)
+{
+	ValueFn fn;
+	if (hashTableFind(&variableCtx, (const void *)name, (void **)&fn))
+		return 0;
+	return fn;
+}
+
+int registerFunction(const char *name, ValueFn fn)
+{
+	if (hashTableInsert(&functionCtx, (const void *)name, (void *)fn, 0))
+		return -1;
+	return 0;
+}
+
+ValueFn findFunction(const char *name)
+{
+	ValueFn fn;
+	if (hashTableFind(&functionCtx, (const void *)name, (void **)&fn))
+		return 0;
+	return fn;
+}
+
+void indicatorInit()
+{
+	hashTableInit(&variableCtx, 1000, cstrCmp, cstrHash);
+	hashTableInit(&functionCtx, 1000, cstrCmp, cstrHash);
+	
+	registerVariable("OPEN", I_OPEN);
+	registerVariable("HIGH", I_HIGH);
+	registerVariable("LOW", I_LOW);
+	registerVariable("CLOSE", I_CLOSE);
+	
+	registerFunction("ADD", I_ADD);
+	registerFunction("SUB", I_SUB);
+	registerFunction("MUL", I_MUL);
+	registerFunction("DIV", I_DIV);
+	
+	registerFunction("REF", I_REF);
+	registerFunction("MAX", I_MAX);
+	registerFunction("ABS", I_ABS);
+	registerFunction("HHV", I_HHV);
+	registerFunction("LLV", I_LLV);
+	registerFunction("MA", I_MA);
+	registerFunction("EMA", I_EMA);
+	registerFunction("SMA", I_SMA);
+}
+
+void indicatorShutdown()
+{
+	hashTableFree(&variableCtx);
+	hashTableFree(&functionCtx);
+}
+
 Value *valueNew()
 {
 	Value *v = (Value *)malloc(sizeof(*v));
 	if (!v)
 		return 0;
 	v->isOwnMem = false;
+	v->type = 0;
 	v->i = 0;
 	v->f = 0;
 	v->values = 0;
@@ -42,16 +107,16 @@ void valueFree(Value *v)
 	}
 }
 
-bool valueExtend(Value *v, int size)
+bool valueExtend(Value *v, int capacity)
 {
-	assert(v && size >= 0);
-	if (v->capacity < size) {
-		double *mem = (double *)realloc(v->values, (sizeof(*mem) * size));
+	assert(v && capacity >= 0);
+	if (v->capacity < capacity) {
+		double *mem = (double *)realloc(v->values, (sizeof(*mem) * capacity));
 		if (!mem)
 			return false;
 		v->isOwnMem = true;
 		v->values = mem;
-		v->capacity = size;
+		v->capacity = capacity;
 	}
 	return true;
 }
@@ -77,8 +142,7 @@ int isValueValid(double f)
 	return true;
 }
 
-
-const Value *OPEN(void *parser)
+Value *OPEN(void *parser)
 {
 	Parser *par = (Parser *)parser;
 	Quote *q = (Quote *)par->userdata;
@@ -86,7 +150,7 @@ const Value *OPEN(void *parser)
 	return q->open;
 }
 
-const Value *HIGH(void *parser)
+Value *HIGH(void *parser)
 {
 	Parser *par = (Parser *)parser;
 	Quote *q = (Quote *)par->userdata;
@@ -94,7 +158,7 @@ const Value *HIGH(void *parser)
 	return q->high;
 }
 
-const Value *LOW(void *parser)
+Value *LOW(void *parser)
 {
 	Parser *par = (Parser *)parser;
 	Quote *q = (Quote *)par->userdata;
@@ -102,7 +166,7 @@ const Value *LOW(void *parser)
 	return q->low;
 }
 
-const Value *CLOSE(void *parser)
+Value *CLOSE(void *parser)
 {
 	Parser *par = (Parser *)parser;
 	Quote *q = (Quote *)par->userdata;
@@ -644,5 +708,149 @@ Value *SMA(const Value *X, int N, int M, Value *R)
 	R->no = X->no;
 	return R;
 }
+
+/* ------------------------------------ 接口开始 ------------------ */
+
+Value *I_OPEN(void *parser, int argc, const Value **args, Value *R)
+{
+	(void)argc;
+	(void)args;
+	(void)R;
+	return OPEN(parser);
+}
+
+Value *I_HIGH(void *parser, int argc, const Value **args, Value *R)
+{
+	(void)argc;
+	(void)args;
+	(void)R;
+	return HIGH(parser);
+}
+
+Value *I_LOW(void *parser, int argc, const Value **args, Value *R)
+{
+	(void)argc;
+	(void)args;
+	(void)R;
+	return LOW(parser);
+}
+
+Value *I_CLOSE(void *parser, int argc, const Value **args, Value *R)
+{
+	(void)argc;
+	(void)args;
+	(void)R;
+	return CLOSE(parser);
+}
+
+Value *I_ADD(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	return ADD(args[0], args[1], R);
+}
+
+Value *I_SUB(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	return SUB(args[0], args[1], R);
+}
+
+Value *I_MUL(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	return MUL(args[0], args[1], R);
+}
+
+Value *I_DIV(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	return DIV(args[0], args[1], R);
+}
+
+Value *I_REF(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+		return R;
+	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	return REF(args[0], N, R);
+}
+
+Value *I_MAX(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+		return R;
+	double M = args[1]->type == TYPE_INT ? args[1]->i : args[1]->f;
+	return MAX(args[0], M, R);
+}
+
+Value *I_ABS(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 1 || !args)
+		return R;
+	return ABS(args[0], R);
+}
+
+Value *I_HHV(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+		return R;
+	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	return HHV(args[0], N, R);
+}
+
+Value *I_LLV(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+		return R;
+	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	return LLV(args[0], N, R);
+}
+
+Value *I_MA(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+		return R;
+	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	return MA(args[0], N, R);
+}
+
+Value *I_EMA(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 2 || !args)
+		return R;
+	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+		return R;
+	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	return EMA(args[0], N, R);
+}
+
+Value *I_SMA(void *parser, int argc, const Value **args, Value *R)
+{
+	if (argc != 3 || !args)
+		return R;
+	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+		return R;
+	if (!args[2] || (args[2]->type != TYPE_INT && args[2]->type != TYPE_DOUBLE))
+		return R;
+	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	int M = args[2]->type == TYPE_INT ? args[2]->i : (int)args[2]->f;
+	return SMA(args[0], N, M, R);
+}
+
+/* ------------------------------------ 接口结束 ------------------ */
 
 }

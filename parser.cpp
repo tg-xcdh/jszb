@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "base.h"
+#include "indicators.h"
 #include "lexer.h"
 #include "parser-impl.h"
 
@@ -129,6 +130,19 @@ static void logInterpPrefix(void *parser)
 }
 #endif
 
+static Value *parserFindVariable(Parser *p, const char *name)
+{
+	assert(p);
+	for (int i = 0; i < p->ast->stmts.size; ++i) {
+		Stmt **arr = (Stmt **)p->ast->stmts.data;
+		Stmt *st = arr[i];
+		if (strcmp(name, st->id.data) == 0) {
+			return st->node.value;
+		}
+	}
+	return 0;
+}
+
 static Value *formulaInterp(Node *node, void *parser)
 {
 #ifndef NDEBUG
@@ -167,7 +181,9 @@ static Value *stmtInterp(Node *node, void *parser)
 	rawlog("%s\n", token2str(e->op));
 #endif
 	assert(e->expr);
-	e->expr->interp(e->expr, parser);
+	Value *v = e->expr->interp(e->expr, parser);
+	assert(node->value == 0 || node->value == v);
+	node->value = v;
 #ifdef LOG_INTERP
 	((Parser *)parser)->interpDepth--;
 #endif
@@ -182,9 +198,9 @@ static Value *intExprInterp(Node *node, void *parser)
 	IntExpr *e = (IntExpr *)node;
 #ifdef LOG_INTERP
 	logInterpPrefix(parser);
-	rawlog("intExprInterp %lld\n", e->val);
+	rawlog("intExprInterp %lld\n", node->value->i);
 #endif
-	return 0;
+	return node->value;
 }
 
 static Value *decimalExprInterp(Node *node, void *parser)
@@ -195,9 +211,9 @@ static Value *decimalExprInterp(Node *node, void *parser)
 	DecimalExpr *e = (DecimalExpr *)node;
 #ifdef LOG_INTERP
 	logInterpPrefix(parser);
-	rawlog("decimalExprInterp %f\n", e->val);
+	rawlog("decimalExprInterp %f\n", node->value->f);
 #endif
-	return 0;
+	return node->value;
 }
 
 static Value *idExprInterp(Node *node, void *parser)
@@ -210,7 +226,14 @@ static Value *idExprInterp(Node *node, void *parser)
 	logInterpPrefix(parser);
 	rawlog("idExprInterp %s\n", e->val.data);
 #endif
-	return 0;
+	ValueFn fn;
+	/* 搜索内置的变量 */
+	fn = findVariable(e->val.data);
+	if (fn)
+		return fn(parser, 0, 0, 0);
+	
+	/* 搜索公式定义中的变量 */
+	return parserFindVariable((Parser *)parser, e->val.data);
 }
 
 static Value *exprListInterp(Node *node, void *parser)
@@ -291,6 +314,7 @@ static Formula *formulaNew(Array *arr)
 #ifndef NDEBUG
 	fm->node.type = NT_FORMULA;
 #endif
+	fm->node.value = 0;
 	fm->node.clean = formulaClean;
 	fm->node.interp = formulaInterp;
 	fm->stmts = *arr;
@@ -310,6 +334,7 @@ static Stmt *stmtNew(String *id, enum Token tok, Node *expr)
 #ifndef NDEBUG
 	st->node.type = NT_STMT;
 #endif
+	st->node.value = 0;
 	st->node.clean = stmtClean;
 	st->node.interp = stmtInterp;
 	st->id = *id;
@@ -329,9 +354,15 @@ static IntExpr *intExprNew(int64_t val)
 #ifndef NDEBUG
 	e->node.type = NT_INT_EXPR;
 #endif
+	e->node.value = valueNew();
+	if (!e->node.value) {
+		free(e);
+		return 0;
+	}
+	e->node.value->type = TYPE_INT;
+	e->node.value->i = val;
 	e->node.clean = intExprClean;
 	e->node.interp = intExprInterp;
-	e->val = val;
 	return e;
 }
 
@@ -343,9 +374,15 @@ static DecimalExpr *decimalExprNew(double val)
 #ifndef NDEBUG
 	e->node.type = NT_DECIMAL_EXPR;
 #endif
+	e->node.value = valueNew();
+	if (!e->node.value) {
+		free(e);
+		return 0;
+	}
+	e->node.value->type = TYPE_DOUBLE;
+	e->node.value->f = val;
 	e->node.clean = decimalExprClean;
 	e->node.interp = decimalExprInterp;
-	e->val = val;
 	return e;
 }
 
@@ -357,6 +394,7 @@ static IdExpr *idExprNew(String *val)
 #ifndef NDEBUG
 	e->node.type = NT_ID_EXPR;
 #endif
+	e->node.value = 0;
 	e->node.clean = idExprClean;
 	e->node.interp = idExprInterp;
 	e->val = *val;
@@ -374,6 +412,7 @@ static ExprList *exprListNew(Array *arr)
 #ifndef NDEBUG
 	e->node.type = NT_EXPR_LIST;
 #endif
+	e->node.value = 0;
 	e->node.clean = exprListClean;
 	e->node.interp = exprListInterp;
 	e->exprs = *arr;
@@ -391,6 +430,7 @@ static FuncCall *funcCallNew(String *id, ExprList *args)
 #ifndef NDEBUG
 	e->node.type = NT_FUNC_CALL;
 #endif
+	e->node.value = 0;
 	e->node.clean = funcCallClean;
 	e->node.interp = funcCallInterp;
 	e->id = *id;
@@ -409,6 +449,7 @@ static BinaryExpr *binaryExprNew(Node *lhs, enum Token op, Node *rhs)
 #ifndef NDEBUG
 	e->node.type = NT_BINARY_EXPR;
 #endif
+	e->node.value = 0;
 	e->node.clean = binaryExprClean;
 	e->node.interp = binaryExprInterp;
 	e->lhs = lhs;
@@ -435,6 +476,7 @@ void *parserNew(void *errdata, int (*handleError)(int lineno, int charpos, int e
 	p->errcount = 0;
 	p->isquit = false;
 	p->ast = 0;
+	p->userdata = 0;
 #ifdef CONFIG_LOG_PARSER
 	p->interpDepth = 0;
 #endif

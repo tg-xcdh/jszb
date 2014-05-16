@@ -69,7 +69,43 @@ void arrayFree(Array *arr);
 
 void *arrayAdd(Array *arr);
 
+void *arrayGet(Array *arr, int i);
+
 /* ------ 数组结束 ------ */
+
+/* ------ 哈希表开始 ------ */
+
+/* char *作为关键字 */
+int cstrCmp(const void *key1, const void *key2);
+unsigned int cstrHash(const void *key);
+/* int作为关键字 */
+int intCmp(const void *key1, const void *key2);
+unsigned int intHash(const void *key);
+
+typedef struct HashNode {
+	const void *key;
+	void *value;
+	struct HashNode *next;
+} HashNode;
+/* <void *, void *> */
+typedef struct {
+	int size; /* 大小 */
+	int (*cmp)(const void *, const void *);/* 1:>,0==,-1:< */
+	unsigned int (*hash)(const void *);
+	HashNode *freeNode; /* 在删除元素时，空出来的HashNode */
+	HashNode *data; /* 存放所有的数据 */
+	int dataCapacity; /* data的容量 */
+	HashNode **lookups; /* 表示那些元素被占用了，那些空闲中 */
+} HashTable;
+
+int hashTableInit(HashTable *ht, int size, int (*cmp)(const void *, const void *), unsigned int (*hash)(const void *));
+void hashTableFree(HashTable *ht);
+
+int hashTableInsert(HashTable *ht, const void *key, void *value, void **oldvalue);
+int hashTableFind(HashTable *ht, const void *key, void **value);
+int hashTableRemove(HashTable *ht, const void *key, void **value);
+
+/* ------ 哈希表结束 ------ */
 
 } // namespace tg
 
