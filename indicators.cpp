@@ -51,6 +51,25 @@ ValueFn findFunction(const char *name)
 	return fn;
 }
 
+#ifdef NDEBUG
+static void debugHashtable(HashTable *) {}
+#else
+static void debugHashtable(HashTable *ht)
+{
+	for (int i = 0; i < ht->dataCapacity; ++i) {
+		HashNode *p = ht->lookups[i];
+		if (!p)
+			continue;
+		info("哈希=%d %u\n", i, ht->hash(p->key)%ht->dataCapacity);
+		while (p) {
+			info("\t%s %p\n", (const char *)p->key, p->value);
+			p = p->next;
+		}
+	}
+	info("\n");
+}
+#endif
+
 void indicatorInit()
 {
 	hashTableInit(&variableCtx, 1000, cstrCmp, cstrHash);
@@ -74,6 +93,7 @@ void indicatorInit()
 	registerFunction("MA", I_MA);
 	registerFunction("EMA", I_EMA);
 	registerFunction("SMA", I_SMA);
+	//debugHashtable(&functionCtx);
 }
 
 void indicatorShutdown()
@@ -82,17 +102,18 @@ void indicatorShutdown()
 	hashTableFree(&functionCtx);
 }
 
-Value *valueNew()
+Value *valueNew(enum ValueType ty)
 {
 	Value *v = (Value *)malloc(sizeof(*v));
 	if (!v)
 		return 0;
 	v->isOwnMem = false;
-	v->type = 0;
+	v->type = ty;
 	v->i = 0;
 	v->f = 0;
-	v->values = 0;
+	v->fs = 0;
 	v->size = 0;
+	v->capacity = 0;
 	v->no = 0;
 	return v;
 }
@@ -101,7 +122,7 @@ void valueFree(Value *v)
 {
 	if (v) {
 		if (v->isOwnMem) {
-			free(v->values);
+			free(v->fs);
 		}
 		free(v);
 	}
@@ -111,11 +132,11 @@ bool valueExtend(Value *v, int capacity)
 {
 	assert(v && capacity >= 0);
 	if (v->capacity < capacity) {
-		double *mem = (double *)realloc(v->values, (sizeof(*mem) * capacity));
+		double *mem = (double *)realloc(v->fs, (sizeof(*mem) * capacity));
 		if (!mem)
 			return false;
 		v->isOwnMem = true;
-		v->values = mem;
+		v->fs = mem;
 		v->capacity = capacity;
 	}
 	return true;
@@ -123,16 +144,35 @@ bool valueExtend(Value *v, int capacity)
 
 double valueGet(const Value *v, int i)
 {
-	assert(v && v->values);
+	assert(v && v->fs);
+	assert((v->isOwnMem && i < v->capacity) || (!v->isOwnMem));
 	assert(i >= 0 && i < v->size);
-	return v->values[i];
+	return v->fs[i];
 }
 
 void valueSet(Value *v, int i, double f)
 {
-	assert(v && v->values);
+	assert(v && v->fs);
+	assert(i >= 0 && i < v->capacity);
 	assert(i >= 0 && i < v->size);
-	v->values[i] = f;
+	v->fs[i] = f;
+}
+
+void valueAdd(Value *v, double f)
+{
+	assert(v && v->fs && v->capacity > 0);
+	if (v->size >= v->capacity) {
+		double *mem = (double *)realloc(v->fs, (sizeof(*mem) * v->capacity * 2));
+		if (!mem)
+			return;
+		v->isOwnMem = true;
+		v->fs = mem;
+		v->capacity = v->capacity * 2;
+	}
+	assert(v->size >= 0 && v->size < v->capacity);
+	v->fs[v->size] = f;
+	v->size++;
+	v->no++;
 }
 
 int isValueValid(double f)
@@ -174,229 +214,305 @@ Value *CLOSE(void *parser)
 	return q->close;
 }
 
+/* 算术运算，其中X和Y都是数组(Array)，op为运算符('+','-','*','/') */
+static Value *suanShuYunSuan_AA(const Value *X, const Value *Y, char op, Value *R)
+{
+	int bno; /* 开始编号 */
+	int xbno; /* X的开始编号 */
+
+	if (!R) {
+		R = valueNew(VT_ARRAY_DOUBLE);
+		if (!R)
+			return 0;
+	}
+
+	/* 从上次的编号开始
+	 * X中fs中size-1对应X->no */
+	assert(R->no >= 0 && X->no >= 0 && Y->no >= 0);
+	assert(X->no >= X->size);
+	assert(Y->no >= Y->size);
+	xbno = X->no - (X->size-1);
+	bno = R->no ? R->no : (xbno);
+	/* 如果Y的size大于等于X的size，从X开始；
+	 * 如果Y的size小于X的size，从Y的第一个元素在X中对应的位置开始
+	 * ------------------- X
+	 *      -------------- Y
+	 *      -------------- R */
+	if (Y->size > 0 && Y->size < X->size) {
+		int y0_xno = xbno + X->size - Y->size; /* Y数组中的第一个元素在X中的编号 */
+		if (bno < y0_xno) {
+			bno = y0_xno;
+		}
+	}
+	
+	int rsize = X->size > Y->size ? Y->size : X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	/* 从数组的后面开始 */
+	int xi = X->size - 1;
+	int yi = Y->size - 1;
+	int ri = R->size - 1;
+	for (int eno = X->no; eno >= bno; --eno, --xi, --yi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(yi >= 0 && yi < Y->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = NAN;
+		switch (op) {
+		case '+': res = valueGet(X, xi) + valueGet(Y, yi); break;
+		case '-': res = valueGet(X, xi) - valueGet(Y, yi); break;
+		case '*': res = valueGet(X, xi) * valueGet(Y, yi); break;
+		case '/':
+			if (valueGet(Y, yi) != 0) {
+				res = valueGet(X, xi) / valueGet(Y, yi);
+			} else {
+				// 问题 rno = kno;
+			}
+			break;
+		default:
+			break;
+		}
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
+
+/* 算术运算，其中X是数组(Array),Y是数字，op为运算符('+','-','*','/') */
+static Value *suanShuYunSuan_AN(const Value *X, double Y, char op, Value *R)
+{
+	int bno; /* 开始编号 */
+	int xbno; /* X的开始编号 */
+
+	if (!R) {
+		R = valueNew(VT_ARRAY_DOUBLE);
+		if (!R)
+			return 0;
+	}
+
+	/* 从上次的编号开始
+	 * X中fs中size-1对应X->no */
+	assert(R->no >= 0 && X->no >= 0);
+	assert(X->no >= X->size);
+	xbno = X->no - (X->size-1);
+	bno = R->no ? R->no : (xbno);
+	
+	int rsize = X->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	/* 从数组的后面开始 */
+	int xi = X->size - 1;
+	int ri = R->size - 1;
+	for (int eno = X->no; eno >= bno; --eno, --xi, --ri) {
+		assert(xi >= 0 && xi < X->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = NAN;
+		switch (op) {
+		case '+': res = valueGet(X, xi) + Y; break;
+		case '-': res = valueGet(X, xi) - Y; break;
+		case '*': res = valueGet(X, xi) * Y; break;
+		case '/':
+			if (Y != 0) {
+				res = valueGet(X, xi) / Y;
+			} else {
+				// 问题 rno = kno;
+			}
+			break;
+		default:
+			break;
+		}
+		valueSet(R, ri, res);
+	}
+	R->no = X->no;
+	return R;
+}
+
+/* 算术运算，其中X是数字，Y是数组(Array)，op为运算符('+','-','*','/') */
+static Value *suanShuYunSuan_NA(double X, const Value *Y, char op, Value *R)
+{
+	int bno; /* 开始编号 */
+	int ybno; /* Y的开始编号 */
+
+	if (!R) {
+		R = valueNew(VT_ARRAY_DOUBLE);
+		if (!R)
+			return 0;
+	}
+
+	/* 从上次的编号开始
+	 * Y中fs中size-1对应Y->no */
+	assert(R->no >= 0 && Y->no >= 0);
+	assert(Y->no >= Y->size);
+	ybno = Y->no - (Y->size-1);
+	bno = R->no ? R->no : (ybno);
+	
+	int rsize = Y->size;
+	if (!valueExtend(R, rsize)) {
+		valueFree(R);
+		return 0;
+	}
+	R->size = rsize;
+	
+	/* 从数组的后面开始 */
+	int yi = Y->size - 1;
+	int ri = R->size - 1;
+	for (int eno = Y->no; eno >= bno; --eno, --yi, --ri) {
+		assert(yi >= 0 && yi < Y->size);
+		assert(ri >= 0 && ri < R->size);
+		double res = NAN;
+		switch (op) {
+		case '+': res = X + valueGet(Y, yi); break;
+		case '-': res = X - valueGet(Y, yi); break;
+		case '*': res = X * valueGet(Y, yi); break;
+		case '/':
+			if (valueGet(Y, yi) != 0) {
+				res = X / valueGet(Y, yi);
+			} else {
+				// 问题 rno = kno;
+			}
+			break;
+		default:
+			break;
+		}
+		valueSet(R, ri, res);
+	}
+	R->no = Y->no;
+	return R;
+}
+
+/* 算术运算，X和Y都是数字，op为运算符('+','-','*','/') */
+static Value *suanShuYunSuan_NN(double X, double Y, char op, Value *R)
+{
+	if (!R) {
+		R = valueNew(VT_DOUBLE);
+		if (!R)
+			return 0;
+	}
+	assert(R->type == VT_DOUBLE);
+	
+	double res = NAN;
+	switch (op) {
+	case '+': res = X + Y; break;
+	case '-': res = X - Y; break;
+	case '*': res = X * Y; break;
+	case '/':
+		if (Y != 0) {
+			res = X / Y;
+		} else {
+			// 问题 rno = kno;
+		}
+		break;
+	default:
+		break;
+	}
+	R->f = res;
+	return R;
+}
+
 /* R = X + Y
  * 2个数组相加,R的大小和元素少的数组一样 
  * R和编号和第一个操作数保持一致 */
 Value *ADD(const Value *X, const Value *Y, Value *R)
 {
-	int bno; /* 开始编号 */
-	int xbno; /* X的开始编号 */
-	
 	assert(X && Y);
-	if (!X || !Y || X->size == 0 || Y->size == 0)
+	if (!X || !Y || (X->size == 0 && X->type == VT_ARRAY_DOUBLE) || (Y->size == 0 && Y->type == VT_ARRAY_DOUBLE))
 		return R;
-	if (!R) {
-		R = valueNew();
-		if (!R)
-			return 0;
-	}
-	/* 从上次的编号开始
-	 * X中values中size-1对应X->no */
-	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
-	assert(X->no >= X->size);
-	assert(Y->no >= Y->size);
-	xbno = X->no - (X->size-1);
-	bno = R->no ? R->no : (xbno);
-	/* 如果Y的size大于等于X的size，从X开始；
-	 * 如果Y的size小于X的size，从Y的第一个元素在X中对应的位置开始
-	 * ------------------- X
-	 *      -------------- Y
-	 *      -------------- R */
-	if (Y->size < X->size) {
-		int y0_xno = xbno + X->size - Y->size; /* Y数组中的第一个元素在X中的编号 */
-		if (bno < y0_xno) {
-			bno = y0_xno;
+	
+	if (X->type == VT_ARRAY_DOUBLE) {
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数组 <---> 数组 */
+			return suanShuYunSuan_AA(X, Y, '+', R);
+		} else { /* 数组 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_AN(X, Y->type == VT_INT ? Y->i : Y->f, '+', R);
+		}
+	} else {
+		assert(X->type == VT_INT || X->type == VT_DOUBLE);
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数 <---> 数组 */
+			return suanShuYunSuan_NA(X->type == VT_INT ? X->i : X->f, Y, '+', R);
+		} else { /* 数 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_NN(X->type == VT_INT ? X->i : X->f, Y->type == VT_INT ? Y->i : Y->f, '+', R);
 		}
 	}
-	
-	int rsize = X->size > Y->size ? Y->size : X->size;
-	if (!valueExtend(R, rsize)) {
-		valueFree(R);
-		return 0;
-	}
-	R->size = rsize;
-	
-	/* 从数组的后面开始 */
-	int xi = X->size - 1;
-	int yi = Y->size - 1;
-	int ri = R->size - 1;
-	for (int eno = X->no; eno >= bno; --eno, --xi, --yi, --ri) {
-		assert(xi >= 0 && xi < X->size);
-		assert(yi >= 0 && yi < X->size);
-		assert(ri >= 0 && ri < R->size);
-		double res = valueGet(X, xi) + valueGet(Y, yi);
-		valueSet(R, ri, res);
-	}
-	R->no = X->no;
-	return R;
 }
 
 Value *SUB(const Value *X, const Value *Y, Value *R)
 {
-	int bno; /* 开始编号 */
-	int xbno; /* X的开始编号 */
-	
 	assert(X && Y);
-	if (!X || !Y || X->size == 0 || Y->size == 0)
+	if (!X || !Y || (X->size == 0 && X->type == VT_ARRAY_DOUBLE) || (Y->size == 0 && Y->type == VT_ARRAY_DOUBLE))
 		return R;
-	if (!R) {
-		R = valueNew();
-		if (!R)
-			return 0;
-	}
-	/* 从上次的编号开始
-	 * X中values中size-1对应X->no */
-	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
-	assert(X->no >= X->size);
-	assert(Y->no >= Y->size);
-	xbno = X->no - (X->size-1);
-	bno = R->no ? R->no : (xbno);
-	/* 如果Y的size大于等于X的size，从X开始；
-	 * 如果Y的size小于X的size，从Y的第一个元素在X中对应的位置开始
-	 * ------------------- X
-	 *      -------------- Y
-	 *      -------------- R */
-	if (Y->size < X->size) {
-		int y0_xno = xbno + X->size - Y->size; /* Y数组中的第一个元素在X中的编号 */
-		if (bno < y0_xno) {
-			bno = y0_xno;
+	
+	if (X->type == VT_ARRAY_DOUBLE) {
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数组 <---> 数组 */
+			return suanShuYunSuan_AA(X, Y, '-', R);
+		} else { /* 数组 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_AN(X, Y->type == VT_INT ? Y->i : Y->f, '-', R);
+		}
+	} else {
+		assert(X->type == VT_INT || X->type == VT_DOUBLE);
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数 <---> 数组 */
+			return suanShuYunSuan_NA(X->type == VT_INT ? X->i : X->f, Y, '-', R);
+		} else { /* 数 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_NN(X->type == VT_INT ? X->i : X->f, Y->type == VT_INT ? Y->i : Y->f, '-', R);
 		}
 	}
-	
-	int rsize = X->size > Y->size ? Y->size : X->size;
-	if (!valueExtend(R, rsize)) {
-		valueFree(R);
-		return 0;
-	}
-	R->size = rsize;
-	
-	/* 从数组的后面开始 */
-	int xi = X->size - 1;
-	int yi = Y->size - 1;
-	int ri = R->size - 1;
-	for (int eno = X->no; eno >= bno; --eno, --xi, --yi, --ri) {
-		assert(xi >= 0 && xi < X->size);
-		assert(yi >= 0 && yi < X->size);
-		assert(ri >= 0 && ri < R->size);
-		double res = valueGet(X, xi) - valueGet(Y, yi);
-		valueSet(R, ri, res);
-	}
-	R->no = X->no;
-	return R;
 }
 
 Value *MUL(const Value *X, const Value *Y, Value *R)
 {
-	int bno; /* 开始编号 */
-	int xbno; /* X的开始编号 */
-	
 	assert(X && Y);
-	if (!X || !Y || X->size == 0 || Y->size == 0)
+	if (!X || !Y || (X->size == 0 && X->type == VT_ARRAY_DOUBLE) || (Y->size == 0 && Y->type == VT_ARRAY_DOUBLE))
 		return R;
-	if (!R) {
-		R = valueNew();
-		if (!R)
-			return 0;
-	}
-	/* 从上次的编号开始
-	 * X中values中size-1对应X->no */
-	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
-	assert(X->no >= X->size);
-	assert(Y->no >= Y->size);
-	xbno = X->no - (X->size-1);
-	bno = R->no ? R->no : (xbno);
-	/* 如果Y的size大于等于X的size，从X开始；
-	 * 如果Y的size小于X的size，从Y的第一个元素在X中对应的位置开始
-	 * ------------------- X
-	 *      -------------- Y
-	 *      -------------- R */
-	if (Y->size < X->size) {
-		int y0_xno = xbno + X->size - Y->size; /* Y数组中的第一个元素在X中的编号 */
-		if (bno < y0_xno) {
-			bno = y0_xno;
+	
+	if (X->type == VT_ARRAY_DOUBLE) {
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数组 <---> 数组 */
+			return suanShuYunSuan_AA(X, Y, '*', R);
+		} else { /* 数组 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_AN(X, Y->type == VT_INT ? Y->i : Y->f, '*', R);
+		}
+	} else {
+		assert(X->type == VT_INT || X->type == VT_DOUBLE);
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数 <---> 数组 */
+			return suanShuYunSuan_NA(X->type == VT_INT ? X->i : X->f, Y, '*', R);
+		} else { /* 数 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_NN(X->type == VT_INT ? X->i : X->f, Y->type == VT_INT ? Y->i : Y->f, '*', R);
 		}
 	}
-	
-	int rsize = X->size > Y->size ? Y->size : X->size;
-	if (!valueExtend(R, rsize)) {
-		valueFree(R);
-		return 0;
-	}
-	R->size = rsize;
-	
-	/* 从数组的后面开始 */
-	int xi = X->size - 1;
-	int yi = Y->size - 1;
-	int ri = R->size - 1;
-	for (int eno = X->no; eno >= bno; --eno, --xi, --yi, --ri) {
-		assert(xi >= 0 && xi < X->size);
-		assert(yi >= 0 && yi < X->size);
-		assert(ri >= 0 && ri < R->size);
-		double res = valueGet(X, xi) * valueGet(Y, yi);
-		valueSet(R, ri, res);
-	}
-	R->no = X->no;
-	return R;
 }
 
 Value *DIV(const Value *X, const Value *Y, Value *R)
 {
-	int bno; /* 开始编号 */
-	int xbno; /* X的开始编号 */
-	
 	assert(X && Y);
-	if (!X || !Y || X->size == 0 || Y->size == 0)
+	if (!X || !Y || (X->size == 0 && X->type == VT_ARRAY_DOUBLE) || (Y->size == 0 && Y->type == VT_ARRAY_DOUBLE))
 		return R;
-	if (!R) {
-		R = valueNew();
-		if (!R)
-			return 0;
-	}
-	/* 从上次的编号开始
-	 * X中values中size-1对应X->no */
-	assert(R->no >= 1 && X->no >= 1 && Y->no >= 1);
-	assert(X->no >= X->size);
-	assert(Y->no >= Y->size);
-	xbno = X->no - (X->size-1);
-	bno = R->no ? R->no : (xbno);
-	/* 如果Y的size大于等于X的size，从X开始；
-	 * 如果Y的size小于X的size，从Y的第一个元素在X中对应的位置开始
-	 * ------------------- X
-	 *      -------------- Y
-	 *      -------------- R */
-	if (Y->size < X->size) {
-		int y0_xno = xbno + X->size - Y->size; /* Y数组中的第一个元素在X中的编号 */
-		if (bno < y0_xno) {
-			bno = y0_xno;
+	
+	if (X->type == VT_ARRAY_DOUBLE) {
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数组 <---> 数组 */
+			return suanShuYunSuan_AA(X, Y, '/', R);
+		} else { /* 数组 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_AN(X, Y->type == VT_INT ? Y->i : Y->f, '/', R);
+		}
+	} else {
+		assert(X->type == VT_INT || X->type == VT_DOUBLE);
+		if (Y->type == VT_ARRAY_DOUBLE) { /* 数 <---> 数组 */
+			return suanShuYunSuan_NA(X->type == VT_INT ? X->i : X->f, Y, '/', R);
+		} else { /* 数 <---> 数 */
+			assert(Y->type == VT_INT || Y->type == VT_DOUBLE);
+			return suanShuYunSuan_NN(X->type == VT_INT ? X->i : X->f, Y->type == VT_INT ? Y->i : Y->f, '/', R);
 		}
 	}
-	
-	int rsize = X->size > Y->size ? Y->size : X->size;
-	if (!valueExtend(R, rsize)) {
-		valueFree(R);
-		return 0;
-	}
-	R->size = rsize;
-	
-	/* 从数组的后面开始 */
-	int xi = X->size - 1;
-	int yi = Y->size - 1;
-	int ri = R->size - 1;
-	int rno = X->no;
-	for (int kno = X->no; kno >= bno; --kno, --xi, --yi, --ri) {
-		assert(xi >= 0 && xi < X->size);
-		assert(yi >= 0 && yi < X->size);
-		assert(ri >= 0 && ri < R->size);
-		if (valueGet(Y, yi) != 0) {
-			double res = valueGet(X, xi) / valueGet(Y, yi);
-			valueSet(R, ri, res);
-		} else {
-			valueSet(R, ri, NAN);
-			// 问题 rno = kno;
-		}
-	}
-	R->no = rno;
-	return R;
 }
 
 /* R:=REF(X,N); 
@@ -408,7 +524,7 @@ Value *REF(const Value *X, int N, Value *R)
 	if (!X || X->size == 0 || X->size < N)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -416,7 +532,7 @@ Value *REF(const Value *X, int N, Value *R)
 	/* ----------------- X
 	 *              N
 	 * ------------- R */
-	R->values = (double *)X->values;
+	R->fs = (double *)X->fs;
 	R->size = X->size - N;
 	R->no = X->no - N;
 
@@ -431,7 +547,7 @@ Value *MAX(const Value *X, double M, Value *R)
 	if (!X || X->size == 0)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -467,7 +583,7 @@ Value *ABS(const Value *X, Value *R)
 	if (!X || X->size == 0)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -505,7 +621,7 @@ Value *HHV(const Value *X, int N, Value *R)
 	if (!X || X->size == 0 || X->size < N)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -518,6 +634,7 @@ Value *HHV(const Value *X, int N, Value *R)
 	R->size = rsize;
 	
 	int xbno = X->no - (X->size-1); /* X中第一个元素的开始编号 */
+	xbno = xbno + N - 1; /* 从头开始的第N个元素 */
 	int bno = R->no ? R->no : xbno; /* 开始编号 */
 	
 	/* 从数组的后面开始 */
@@ -546,7 +663,7 @@ Value *LLV(const Value *X, int N, Value *R)
 	if (!X || X->size == 0 || X->size < N)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -559,6 +676,7 @@ Value *LLV(const Value *X, int N, Value *R)
 	R->size = rsize;
 	
 	int xbno = X->no - (X->size-1); /* X中第一个元素的开始编号 */
+	xbno = xbno + N - 1; /* 从头开始的第N个元素 */
 	int bno = R->no ? R->no : xbno; /* 开始编号 */
 	
 	/* 从数组的后面开始 */
@@ -589,7 +707,7 @@ Value *MA(const Value *X, int M, Value *R)
 	if (!X || X->size == 0 || X->size < M)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -631,7 +749,7 @@ Value *EMA(const Value *X, int M, Value *R)
 	if (!X || X->size == 0)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -675,7 +793,7 @@ Value *SMA(const Value *X, int N, int M, Value *R)
 	if (!X || X->size == 0)
 		return R;
 	if (!R) {
-		R = valueNew();
+		R = valueNew(X->type);
 		if (!R)
 			return 0;
 	}
@@ -775,9 +893,9 @@ Value *I_REF(void *parser, int argc, const Value **args, Value *R)
 {
 	if (argc != 2 || !args)
 		return R;
-	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+	if (!args[1] || (args[1]->type != VT_INT && args[1]->type != VT_DOUBLE))
 		return R;
-	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	int N = args[1]->type == VT_INT ? (int)args[1]->i : (int)args[1]->f;
 	return REF(args[0], N, R);
 }
 
@@ -785,9 +903,9 @@ Value *I_MAX(void *parser, int argc, const Value **args, Value *R)
 {
 	if (argc != 2 || !args)
 		return R;
-	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+	if (!args[1] || (args[1]->type != VT_INT && args[1]->type != VT_DOUBLE))
 		return R;
-	double M = args[1]->type == TYPE_INT ? args[1]->i : args[1]->f;
+	double M = args[1]->type == VT_INT ? args[1]->i : args[1]->f;
 	return MAX(args[0], M, R);
 }
 
@@ -802,9 +920,9 @@ Value *I_HHV(void *parser, int argc, const Value **args, Value *R)
 {
 	if (argc != 2 || !args)
 		return R;
-	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+	if (!args[1] || (args[1]->type != VT_INT && args[1]->type != VT_DOUBLE))
 		return R;
-	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	int N = args[1]->type == VT_INT ? (int)args[1]->i : (int)args[1]->f;
 	return HHV(args[0], N, R);
 }
 
@@ -812,9 +930,9 @@ Value *I_LLV(void *parser, int argc, const Value **args, Value *R)
 {
 	if (argc != 2 || !args)
 		return R;
-	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+	if (!args[1] || (args[1]->type != VT_INT && args[1]->type != VT_DOUBLE))
 		return R;
-	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	int N = args[1]->type == VT_INT ? (int)args[1]->i : (int)args[1]->f;
 	return LLV(args[0], N, R);
 }
 
@@ -822,9 +940,9 @@ Value *I_MA(void *parser, int argc, const Value **args, Value *R)
 {
 	if (argc != 2 || !args)
 		return R;
-	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+	if (!args[1] || (args[1]->type != VT_INT && args[1]->type != VT_DOUBLE))
 		return R;
-	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	int N = args[1]->type == VT_INT ? (int)args[1]->i : (int)args[1]->f;
 	return MA(args[0], N, R);
 }
 
@@ -832,9 +950,9 @@ Value *I_EMA(void *parser, int argc, const Value **args, Value *R)
 {
 	if (argc != 2 || !args)
 		return R;
-	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+	if (!args[1] || (args[1]->type != VT_INT && args[1]->type != VT_DOUBLE))
 		return R;
-	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
+	int N = args[1]->type == VT_INT ? (int)args[1]->i : (int)args[1]->f;
 	return EMA(args[0], N, R);
 }
 
@@ -842,12 +960,12 @@ Value *I_SMA(void *parser, int argc, const Value **args, Value *R)
 {
 	if (argc != 3 || !args)
 		return R;
-	if (!args[1] || (args[1]->type != TYPE_INT && args[1]->type != TYPE_DOUBLE))
+	if (!args[1] || (args[1]->type != VT_INT && args[1]->type != VT_DOUBLE))
 		return R;
-	if (!args[2] || (args[2]->type != TYPE_INT && args[2]->type != TYPE_DOUBLE))
+	if (!args[2] || (args[2]->type != VT_INT && args[2]->type != VT_DOUBLE))
 		return R;
-	int N = args[1]->type == TYPE_INT ? args[1]->i : (int)args[1]->f;
-	int M = args[2]->type == TYPE_INT ? args[2]->i : (int)args[2]->f;
+	int N = args[1]->type == VT_INT ? (int)args[1]->i : (int)args[1]->f;
+	int M = args[2]->type == VT_INT ? (int)args[2]->i : (int)args[2]->f;
 	return SMA(args[0], N, M, R);
 }
 

@@ -27,7 +27,6 @@ struct Node {
 #ifndef NDEBUG
 	enum NodeType type;
 #endif
-	Value *value;
 	void (*clean)(Node *node);
 	Value *(*interp)(Node *node, void *parser); /* 运行当前节点 */
 };
@@ -45,30 +44,36 @@ struct Stmt {
 	String id;
 	enum Token op; /* TK_COLON_EQ/TK_COLON */
 	Node *expr;
+	Value *value;
 };
 
 struct IntExpr {
 	struct Node node;
+	Value *value;
 };
 
 struct DecimalExpr {
 	struct Node node;
+	Value *value;
 };
 
 struct IdExpr {
 	struct Node node;
 	String val;
+	Value *value;
 };
 
 struct ExprList {
 	struct Node node;
 	Array exprs; // Expr **
+	Value **values;
 };
 
 struct FuncCall {
 	struct Node node;
 	String id;
 	ExprList *args;
+	Value *value;
 };
 
 struct BinaryExpr {
@@ -76,6 +81,7 @@ struct BinaryExpr {
 	Node *lhs;
 	enum Token op;
 	Node *rhs;
+	Value *value;
 };
 
 /* ------ AST结束 ------ */

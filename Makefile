@@ -65,9 +65,9 @@
 # The pre-processor and compiler options.
 # 例如，MY_CFLAGS = `pkg-config --cflags gtk+-2.0`
 MY_CFLAGS=-DCONFIG_LOG_DEBUG
-MY_CFLAGS+=-DCONFIG_LOG_TIME
+#MY_CFLAGS+=-DCONFIG_LOG_TIME
 #MY_CFLAGS+=-DCONFIG_LOG_LEXER
-MY_CFLAGS+=-DCONFIG_LOG_PARSER
+#MY_CFLAGS+=-DCONFIG_LOG_PARSER
 
 # The linker options.
 # 例如，MY_LIBS   = `pkg-config --libs gtk+-2.0`

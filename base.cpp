@@ -144,7 +144,7 @@ void *arrayAdd(Array *arr)
 {
 	assert(arr);
 	if (arr->size == arr->capacity) {
-		void *data2 = realloc(arr->data, arr->capacity * 2);
+		void *data2 = realloc(arr->data, arr->objectSize * arr->capacity * 2);
 		if (!data2)
 			return 0;
 		arr->data = data2;
@@ -240,6 +240,7 @@ void hashTableFree(HashTable *ht)
 	if (ht) {
 		free(ht->data);
 #ifndef NDEBUG
+		ht->freeNode = 0;
 		ht->data = 0;
 		ht->lookups = 0;
 #endif
@@ -261,7 +262,7 @@ static void hashTableInsertWithHash(HashTable *ht, unsigned int hash, const void
 	assert(ht->freeNode && ht->size < ht->dataCapacity);
 	ht->freeNode->key = key;
 	ht->freeNode->value = value;
-	next = ht->freeNode;
+	next = ht->freeNode->next;
 	ht->freeNode->next = ht->lookups[hash];
 	ht->lookups[hash] = ht->freeNode;
 	ht->freeNode = next;
@@ -307,8 +308,8 @@ int hashTableInsert(HashTable *ht, const void *key, void *value, void **oldvalue
 		}
 		hashTableFree(ht);
 		*ht = ht2;
+		h = h % ht->dataCapacity;
 	}
-	h = h % ht->dataCapacity;
 	assert(h >= 0 && (int)h < ht->dataCapacity);
 	hashTableInsertWithHash(ht, h, key, value);
 	return 0;
@@ -330,7 +331,6 @@ int hashTableFind(HashTable *ht, const void *key, void **value)
 		if (!ht->cmp(ph->key, key)) {
 			if (value)
 				*value = ph->value;
-			ph->value = value;
 			return 0;
 		}
 		ph = ph->next;

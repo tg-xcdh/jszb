@@ -1,6 +1,7 @@
 #include "parser.h"
 
 #include <assert.h>
+#include <float.h>
 #include <malloc.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -137,7 +138,7 @@ static Value *parserFindVariable(Parser *p, const char *name)
 		Stmt **arr = (Stmt **)p->ast->stmts.data;
 		Stmt *st = arr[i];
 		if (strcmp(name, st->id.data) == 0) {
-			return st->node.value;
+			return st->value;
 		}
 	}
 	return 0;
@@ -182,8 +183,8 @@ static Value *stmtInterp(Node *node, void *parser)
 #endif
 	assert(e->expr);
 	Value *v = e->expr->interp(e->expr, parser);
-	assert(node->value == 0 || node->value == v);
-	node->value = v;
+	assert(e->value == 0 || e->value == v);
+	e->value = v;
 #ifdef LOG_INTERP
 	((Parser *)parser)->interpDepth--;
 #endif
@@ -198,9 +199,9 @@ static Value *intExprInterp(Node *node, void *parser)
 	IntExpr *e = (IntExpr *)node;
 #ifdef LOG_INTERP
 	logInterpPrefix(parser);
-	rawlog("intExprInterp %lld\n", node->value->i);
+	rawlog("intExprInterp %lld\n", e->value->i);
 #endif
-	return node->value;
+	return e->value;
 }
 
 static Value *decimalExprInterp(Node *node, void *parser)
@@ -211,9 +212,9 @@ static Value *decimalExprInterp(Node *node, void *parser)
 	DecimalExpr *e = (DecimalExpr *)node;
 #ifdef LOG_INTERP
 	logInterpPrefix(parser);
-	rawlog("decimalExprInterp %f\n", node->value->f);
+	rawlog("decimalExprInterp %f\n", e->value->f);
 #endif
-	return node->value;
+	return e->value;
 }
 
 static Value *idExprInterp(Node *node, void *parser)
@@ -250,7 +251,7 @@ static Value *exprListInterp(Node *node, void *parser)
 	for (int i = 0; i < e->exprs.size; ++i) {
 		Expr **arr = (Expr **)e->exprs.data;
 		Node *nd = (Node *)arr[i];
-		nd->interp(nd, parser);
+		e->values[i] = nd->interp(nd, parser);
 	}
 #ifdef LOG_INTERP
 	((Parser *)parser)->interpDepth--;
@@ -271,13 +272,21 @@ static Value *funcCallInterp(Node *node, void *parser)
 	logInterpPrefix(parser);
 	rawlog("%s\n", e->id.data);
 #endif
+	int argc = 0;
+	Value **args = 0;
 	if (e->args) {
 		e->args->node.interp((Node *)e->args, parser);
+		argc = e->args->exprs.size;
+		args = e->args->values;
+	}
+	ValueFn fn = findFunction(e->id.data);
+	if (fn) {
+		e->value = fn(parser, argc, (const Value **)args, e->value);
 	}
 #ifdef LOG_INTERP
 	((Parser *)parser)->interpDepth--;
 #endif
-	return 0;
+	return e->value;
 }
 
 static Value *binaryExprInterp(Node *node, void *parser)
@@ -292,14 +301,23 @@ static Value *binaryExprInterp(Node *node, void *parser)
 	((Parser *)parser)->interpDepth++;
 #endif
 	assert(e->lhs && e->rhs);
-	e->lhs->interp(e->lhs, parser);
-	e->rhs->interp(e->rhs, parser);
+	Value *lhs = e->lhs->interp(e->lhs, parser);
+	Value *rhs = e->rhs->interp(e->rhs, parser);
+	switch (e->op) {
+	case TK_ADD: e->value = ADD(lhs, rhs, e->value); break; /* + */
+	case TK_SUB: e->value = SUB(lhs, rhs, e->value); break; /* - */
+	case TK_MUL: e->value = MUL(lhs, rhs, e->value); break; /* * */
+	case TK_DIV: e->value = DIV(lhs, rhs, e->value); break; /* / */
+	default:
+		assert(0);
+		break;
+	}
 #ifdef LOG_INTERP
 	logInterpPrefix(parser);
 	rawlog("%s\n", token2str(e->op));
 	((Parser *)parser)->interpDepth--;
 #endif
-	return 0;
+	return e->value;
 }
 
 /* ------ interp结束 ------ */
@@ -314,7 +332,6 @@ static Formula *formulaNew(Array *arr)
 #ifndef NDEBUG
 	fm->node.type = NT_FORMULA;
 #endif
-	fm->node.value = 0;
 	fm->node.clean = formulaClean;
 	fm->node.interp = formulaInterp;
 	fm->stmts = *arr;
@@ -334,7 +351,7 @@ static Stmt *stmtNew(String *id, enum Token tok, Node *expr)
 #ifndef NDEBUG
 	st->node.type = NT_STMT;
 #endif
-	st->node.value = 0;
+	st->value = 0;
 	st->node.clean = stmtClean;
 	st->node.interp = stmtInterp;
 	st->id = *id;
@@ -346,7 +363,7 @@ static Stmt *stmtNew(String *id, enum Token tok, Node *expr)
 	return st;
 }
 
-static IntExpr *intExprNew(int64_t val)
+static IntExpr *intExprNew(int val)
 {
 	IntExpr *e = (IntExpr *)malloc(sizeof(*e));
 	if (!e)
@@ -354,13 +371,12 @@ static IntExpr *intExprNew(int64_t val)
 #ifndef NDEBUG
 	e->node.type = NT_INT_EXPR;
 #endif
-	e->node.value = valueNew();
-	if (!e->node.value) {
+	e->value = valueNew(VT_INT);
+	if (!e->value) {
 		free(e);
 		return 0;
 	}
-	e->node.value->type = TYPE_INT;
-	e->node.value->i = val;
+	e->value->i = val;
 	e->node.clean = intExprClean;
 	e->node.interp = intExprInterp;
 	return e;
@@ -374,13 +390,12 @@ static DecimalExpr *decimalExprNew(double val)
 #ifndef NDEBUG
 	e->node.type = NT_DECIMAL_EXPR;
 #endif
-	e->node.value = valueNew();
-	if (!e->node.value) {
+	e->value = valueNew(VT_DOUBLE);
+	if (!e->value) {
 		free(e);
 		return 0;
 	}
-	e->node.value->type = TYPE_DOUBLE;
-	e->node.value->f = val;
+	e->value->f = val;
 	e->node.clean = decimalExprClean;
 	e->node.interp = decimalExprInterp;
 	return e;
@@ -394,7 +409,7 @@ static IdExpr *idExprNew(String *val)
 #ifndef NDEBUG
 	e->node.type = NT_ID_EXPR;
 #endif
-	e->node.value = 0;
+	e->value = 0;
 	e->node.clean = idExprClean;
 	e->node.interp = idExprInterp;
 	e->val = *val;
@@ -412,10 +427,15 @@ static ExprList *exprListNew(Array *arr)
 #ifndef NDEBUG
 	e->node.type = NT_EXPR_LIST;
 #endif
-	e->node.value = 0;
 	e->node.clean = exprListClean;
 	e->node.interp = exprListInterp;
 	e->exprs = *arr;
+	if (e->exprs.size > 0) {
+		e->values = (Value **)malloc(sizeof(Value *) * e->exprs.size);
+		memset(e->values, 0, sizeof(Value *)*e->exprs.size);
+	} else {
+		e->values = 0;
+	}
 #ifndef NDEBUG
 	memset(arr, 0, sizeof(*arr));
 #endif
@@ -430,11 +450,11 @@ static FuncCall *funcCallNew(String *id, ExprList *args)
 #ifndef NDEBUG
 	e->node.type = NT_FUNC_CALL;
 #endif
-	e->node.value = 0;
 	e->node.clean = funcCallClean;
 	e->node.interp = funcCallInterp;
 	e->id = *id;
 	e->args = args;
+	e->value = 0;
 #ifndef NDEBUG
 	memset(id, 0, sizeof(*id));
 #endif
@@ -449,12 +469,12 @@ static BinaryExpr *binaryExprNew(Node *lhs, enum Token op, Node *rhs)
 #ifndef NDEBUG
 	e->node.type = NT_BINARY_EXPR;
 #endif
-	e->node.value = 0;
 	e->node.clean = binaryExprClean;
 	e->node.interp = binaryExprInterp;
 	e->lhs = lhs;
 	e->op = op;
 	e->rhs = rhs;
+	e->value = 0;
 	return e;
 }
 
@@ -585,7 +605,7 @@ static Node *parseUnaryExpr(Parser *p)
 #ifdef LOG_PARSE
 		info("解析得到IntExpr\n");
 #endif
-		expr = (Node *)intExprNew(atoll(p->tokval));
+		expr = (Node *)intExprNew(atoi(p->tokval));
 		p->tokval[p->toklen] = ch;
 		p->tok = lexerGetToken(p->lex, &p->tokval, &p->toklen);
 	} else if (p->tok == TK_DECIMAL) {
@@ -838,6 +858,28 @@ int parserInterp(void *p, void *userdata)
 	yacc->ast->node.interp((Node *)yacc->ast, p);
 	
 	return 0;
+}
+
+int parserGetIndicator(void *p, const char *name, double *outf)
+{
+	int ret = -1;
+	double f = -DBL_MAX;
+	Value *v = parserFindVariable((Parser *)p, name);
+	if (v) {
+		ret = 0;
+		if (v->type == VT_ARRAY_DOUBLE) {
+			f = valueGet(v, v->size-1);
+		} else if (v->type == VT_INT) {
+			f = v->i;
+		} else if (v->type == VT_DOUBLE) {
+			f = v->f;
+		} else {
+			assert(0);
+		}
+	}
+	if (outf)
+		*outf = f;
+	return ret;
 }
 
 }

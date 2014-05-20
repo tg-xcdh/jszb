@@ -31,7 +31,7 @@ static void testInit(int count)
 			fgets(buf, sizeof(buf), f);
 			double o, h, l, c;
 			o = h = l = c = 0;
-			sscanf(buf, "%lf %lf %lf %lf", &o, &h, &l, &c);
+			sscanf(buf, "%lf,%lf,%lf,%lf", &o, &h, &l, &c);
 			if (o > 0 && h > 0 && l > 0 && c > 0) {
 				*(double *)arrayAdd(&opens) = o;
 				*(double *)arrayAdd(&highs) = h;
@@ -53,10 +53,10 @@ static void testInit(int count)
 	q = (Quote *)malloc(sizeof(*q));
 	if (!q)
 		return;
-	q->open = valueNew();
-	q->high = valueNew();
-	q->low = valueNew();
-	q->close = valueNew();
+	q->open = valueNew(VT_ARRAY_DOUBLE);
+	q->high = valueNew(VT_ARRAY_DOUBLE);
+	q->low = valueNew(VT_ARRAY_DOUBLE);
+	q->close = valueNew(VT_ARRAY_DOUBLE);
 	
 	valueExtend(q->open, count);
 	valueExtend(q->high, count);
@@ -64,14 +64,10 @@ static void testInit(int count)
 	valueExtend(q->close, count);
 	
 	for (int i = 0; i < count; ++i) {
-		valueSet(q->open, i, *(double *)arrayGet(&opens, i));
-		valueSet(q->high, i, *(double *)arrayGet(&highs, i));
-		valueSet(q->low, i, *(double *)arrayGet(&lows, i));
-		valueSet(q->close, i, *(double *)arrayGet(&closes, i));
-		q->open->size++;
-		q->high->size++;
-		q->low->size++;
-		q->close->size++;
+		valueAdd(q->open, *(double *)arrayGet(&opens, i));
+		valueAdd(q->high, *(double *)arrayGet(&highs, i));
+		valueAdd(q->low, *(double *)arrayGet(&lows, i));
+		valueAdd(q->close, *(double *)arrayGet(&closes, i));
 	}
 	
 	startIndex = count;
@@ -93,20 +89,51 @@ static void testShutdown()
 	}
 }
 
+#define TEST_INIT(name) \
+	extern void test##name##Init(); \
+	test##name##Init();
+#define TEST(name) \
+	extern void test##name(); \
+	test##name();
+#define TEST_SHUTDOWN(name) \
+	extern void test##name##Shutdown(); \
+	test##name##Shutdown();
+
 int main(int argc, const char **argv)
 {
 	testInit(100);
 	tg::indicatorInit();
 
-	extern void testRSI();
-	testRSI();
-	extern void testKDJ();
-	testKDJ();
-	extern void testMACD();
-	testMACD();
-	
+	TEST_INIT(RSI);
+	TEST_INIT(KDJ);
+	TEST_INIT(MACD);
+
+	const int INTERVAL = 1;
+
+	for (int i = startIndex, count = startIndex; i < closes.size; i += INTERVAL, ++count) {
+		for (int j = i; j < (i + INTERVAL) && j < closes.size; ++j) {
+			if (j == i) { /* 第一个元素模拟股票软件中新增了一根K线 */
+				valueAdd(q->open, *(double *)arrayGet(&opens, j));
+				valueAdd(q->high, *(double *)arrayGet(&highs, j));
+				valueAdd(q->low, *(double *)arrayGet(&lows, j));
+				valueAdd(q->close, *(double *)arrayGet(&closes, j));
+			} else { /* 其他元素模拟股票软件中当前K线的更新 */
+				valueSet(q->open, count, *(double *)arrayGet(&opens, j));
+				valueSet(q->high, count, *(double *)arrayGet(&highs, j));
+				valueSet(q->low, count, *(double *)arrayGet(&lows, j));
+				valueSet(q->close, count, *(double *)arrayGet(&closes, j));
+			}
+			TEST(RSI);
+			TEST(KDJ);
+			TEST(MACD);
+		}
+	}
+
+	TEST_SHUTDOWN(RSI);
+	TEST_SHUTDOWN(KDJ);
+	TEST_SHUTDOWN(MACD);
+
 	tg::indicatorShutdown();
-	
 	testShutdown();
 	
 	return 0;

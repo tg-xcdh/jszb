@@ -5,16 +5,18 @@
 
 namespace tg {
 
-static const char TYPE_INT = 1;
-static const char TYPE_DOUBLE = 2;
-static const char TYPE_ARRAY = 3;
+enum ValueType {
+	VT_INT = 1,
+	VT_DOUBLE,
+	VT_ARRAY_DOUBLE,
+};
 struct Value {
 	bool isOwnMem;
-	char type;
+	enum ValueType type;
 	union {
-		int64_t i;
+		int i;
 		double f;
-		double *values;
+		double *fs;
 	};
 	int size; /* 大小 */
 	int capacity; /* 容量 */
@@ -23,13 +25,15 @@ struct Value {
 	int no;
 };
 
-Value *valueNew();
+Value *valueNew(enum ValueType ty);
 void valueFree(Value *v);
 
 bool valueExtend(Value *v, int capacity);
 
 double valueGet(const Value *v, int i);
 void valueSet(Value *v, int i, double f);
+/* 增加一个元素 */
+void valueAdd(Value *v, double f);
 
 int isValueValid(double f); /* 值是否有效 */
 

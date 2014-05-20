@@ -42,7 +42,7 @@ int parserParse(void *p, const char *str, int len);
 
 int parserInterp(void *p, void *userdata);
 
-double parserGetIndicator(void *p, const char *name);
+int parserGetIndicator(void *p, const char *name, double *outf);
 
 /* ------ Parser½áÊø ------ */
 
